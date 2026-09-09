@@ -1,0 +1,162 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Default: البني الفاتح الدافئ (Brown Light / Warm Earth) */
+  --color-primary: #854d0e;
+  --color-primary-hover: #713f12;
+  --color-primary-light: #fef3c7;
+  --color-surface: #faf6ee;
+  --color-surface-card: #ffffff;
+  --color-surface-hover: #f3ecdd;
+  --color-border: #e7decb;
+  --color-text-main: #291e0a;
+  --color-text-muted: #78644c;
+  --color-accent: #d97706;
+}
+
+/* 1. الأزرق السماوي الهادئ */
+.theme-sky-blue {
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-light: #dbeafe;
+  --color-surface: #f8fafc;
+  --color-surface-card: #ffffff;
+  --color-surface-hover: #f1f5f9;
+  --color-border: #e2e8f0;
+  --color-text-main: #0f172a;
+  --color-text-muted: #64748b;
+  --color-accent: #38bdf8;
+}
+
+/* 2. الزمردي التقليدي */
+.theme-classic-emerald {
+  --color-primary: #064e3b;
+  --color-primary-hover: #04382a;
+  --color-primary-light: #ecfdf5;
+  --color-surface: #faf7f2;
+  --color-surface-card: #ffffff;
+  --color-surface-hover: #f4efe6;
+  --color-border: #e6dfd5;
+  --color-text-main: #132a1e;
+  --color-text-muted: #576b60;
+  --color-accent: #059669;
+}
+
+/* 3. الخزامي الناعم */
+.theme-soft-lavender {
+  --color-primary: #7c3aed;
+  --color-primary-hover: #6d28d9;
+  --color-primary-light: #f5f3ff;
+  --color-surface: #fcfaff;
+  --color-surface-card: #ffffff;
+  --color-surface-hover: #f3e8ff;
+  --color-border: #e9d5ff;
+  --color-text-main: #2e1065;
+  --color-text-muted: #7e69ab;
+  --color-accent: #a855f7;
+}
+
+/* 4. البني الفاتح الدافئ (Brown Light / Warm Earth) */
+.theme-brown-light {
+  --color-primary: #854d0e;
+  --color-primary-hover: #713f12;
+  --color-primary-light: #fef3c7;
+  --color-surface: #faf6ee;
+  --color-surface-card: #ffffff;
+  --color-surface-hover: #f5eee1;
+  --color-border: #e7dcce;
+  --color-text-main: #382314;
+  --color-text-muted: #7c6352;
+  --color-accent: #b45309;
+}
+
+/* 5. الكحلي الملكي العميق (Dark) */
+.theme-royal-navy {
+  --color-primary: #3b82f6;
+  --color-primary-hover: #2563eb;
+  --color-primary-light: #172554;
+  --color-surface: #0b1329;
+  --color-surface-card: #111e38;
+  --color-surface-hover: #1c2e54;
+  --color-border: #1e3a8a;
+  --color-text-main: #f8fafc;
+  --color-text-muted: #94a3b8;
+  --color-accent: #60a5fa;
+}
+
+/* 5. الزمردي الليلي الداكن (Dark) */
+.theme-emerald-night {
+  --color-primary: #10b981;
+  --color-primary-hover: #059669;
+  --color-primary-light: #064e3b;
+  --color-surface: #05140f;
+  --color-surface-card: #09261d;
+  --color-surface-hover: #0d382b;
+  --color-border: #134e3f;
+  --color-text-main: #f0fdf4;
+  --color-text-muted: #86efac;
+  --color-accent: #34d399;
+}
+
+/* 6. الفضاء الرمادي المتدرج (Dark) */
+.theme-slate-space {
+  --color-primary: #94a3b8;
+  --color-primary-hover: #cbd5e1;
+  --color-primary-light: #1e293b;
+  --color-surface: #0f172a;
+  --color-surface-card: #1e293b;
+  --color-surface-hover: #334155;
+  --color-border: #475569;
+  --color-text-main: #f8fafc;
+  --color-text-muted: #94a3b8;
+  --color-accent: #e2e8f0;
+}
+
+body {
+  font-size: 17.5px;
+  line-height: 1.65;
+  background-color: var(--color-surface);
+  color: var(--color-text-main);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Cairo', sans-serif;
+  letter-spacing: -0.02em;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-surface);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary);
+}
+
+/* Print Styling */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+}
+
+/* Hero Gradient Banners - Guaranteed high contrast */
+.hero-gradient-banner {
+  background-color: var(--color-primary) !important;
+  background-image: linear-gradient(135deg, var(--color-primary-hover) 0%, var(--color-primary) 50%, var(--color-accent) 100%) !important;
+  color: #ffffff !important;
+}
+
