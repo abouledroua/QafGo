@@ -73,10 +73,10 @@ export const SettingsProvider = ({ children }) => {
   const uploadAsset = async (file, type = 'logo') => {
     try {
       const formData = new FormData();
-      formData.append('file', file);
       formData.append('type', type);
+      formData.append('file', file);
 
-      const res = await api.post('/settings/upload-assets', formData, {
+      const res = await api.post(`/settings/upload-assets?type=${encodeURIComponent(type)}`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }

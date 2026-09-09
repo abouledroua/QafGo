@@ -52,6 +52,33 @@
     "profile": "Profil",
     "language": "Langue"
   },
+  "auth": {
+    "login_title": "Connexion",
+    "login_welcome": "Bienvenue sur la plateforme",
+    "username": "Nom d'utilisateur",
+    "username_placeholder": "Nom d'utilisateur (ex: admin)",
+    "password": "Mot de passe",
+    "password_placeholder": "••••••••",
+    "login_btn": "Se connecter",
+    "logging_in": "Connexion en cours...",
+    "demo_title": "Compte Administrateur de démonstration :",
+    "quick_demo_login": "Connexion rapide Démo (admin)",
+    "invalid_credentials": "Nom d'utilisateur ou mot de passe incorrect",
+    "logout_success": "Déconnexion réussie",
+    "platform_tagline": "Gestion numérique intégrée des programmes coraniques et éducatifs"
+  },
+  "academic_year_modal": {
+    "title": "Initialiser la première année scolaire",
+    "subtitle": "Aucune année scolaire n'est enregistrée. Vous devez ajouter et activer une année scolaire pour utiliser la plateforme.",
+    "label": "Libellé de l'année scolaire",
+    "label_placeholder": "ex : 2025/2026",
+    "start_date": "Date de début",
+    "end_date": "Date de fin",
+    "submit_btn": "Enregistrer et activer l'année",
+    "submitting": "Enregistrement en cours...",
+    "mandatory_notice": "Cette étape est obligatoire pour démarrer la gestion des élèves et des groupes.",
+    "error_fill_fields": "Veuillez remplir correctement tous les champs obligatoires"
+  },
   "sidebar": {
     "section_core": "Modules principaux",
     "dashboard": "Tableau de bord",

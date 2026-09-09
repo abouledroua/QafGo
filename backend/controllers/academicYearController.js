@@ -10,6 +10,7 @@ export const getAcademicYears = async (req, res) => {
       FROM academic_years ay
       ORDER BY ay.start_date DESC
     `);
+
     return res.json({ success: true, data: years });
   } catch (error) {
     console.error('getAcademicYears error:', error);

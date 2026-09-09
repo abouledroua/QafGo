@@ -23,6 +23,12 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('qafgo_token');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+      }
+    }
     const message = error.response?.data?.message || 'حدث خطأ في الاتصال بالخادم';
     return Promise.reject(new Error(message));
   }

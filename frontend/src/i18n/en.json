@@ -52,6 +52,33 @@
     "profile": "Profile",
     "language": "Language"
   },
+  "auth": {
+    "login_title": "Sign In",
+    "login_welcome": "Welcome back to the platform",
+    "username": "Username",
+    "username_placeholder": "Username (e.g. admin)",
+    "password": "Password",
+    "password_placeholder": "••••••••",
+    "login_btn": "Sign In",
+    "logging_in": "Signing in...",
+    "demo_title": "Demo Administrator Account:",
+    "quick_demo_login": "Quick Demo Login (admin)",
+    "invalid_credentials": "Invalid username or password",
+    "logout_success": "Logged out successfully",
+    "platform_tagline": "Integrated Digital Management for Quranic & Academic Programs"
+  },
+  "academic_year_modal": {
+    "title": "Initialize First Academic Year",
+    "subtitle": "No academic year is registered in the database. You must add and activate an academic year to operate the platform.",
+    "label": "Academic Year Label",
+    "label_placeholder": "e.g. 2025/2026",
+    "start_date": "Start Date",
+    "end_date": "End Date",
+    "submit_btn": "Save & Activate Academic Year",
+    "submitting": "Saving & Initializing...",
+    "mandatory_notice": "This step is required to operate the platform and manage students and groups.",
+    "error_fill_fields": "Please fill out all required fields properly"
+  },
   "sidebar": {
     "section_core": "Core Modules",
     "dashboard": "Main Dashboard",

@@ -62,6 +62,7 @@ export default function StudentProfilePage() {
     notes: ''
   });
   const [editPhotoPreview, setEditPhotoPreview] = useState(null);
+  const [editPhotoFile, setEditPhotoFile] = useState(null);
   const [uploadingEditPhoto, setUploadingEditPhoto] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
 
@@ -92,7 +93,7 @@ export default function StudentProfilePage() {
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center space-y-3">
           <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="text-text-muted font-bold">{t('student_profile.loading_dossier')}</p>
+          <p className="text-text-muted font-bold text-base">{t('common.loading')}</p>
         </div>
       </div>
     );
@@ -100,8 +101,13 @@ export default function StudentProfilePage() {
 
   if (!dossier || !dossier.student) {
     return (
-      <div className="p-12 text-center text-text-muted bg-surface-card border border-border rounded-3xl">
-        {t('student_profile.student_not_found')}
+      <div className="text-center py-16 space-y-4">
+        <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto" />
+        <h2 className="text-xl font-black text-text-main">{t('student_profile.not_found_title')}</h2>
+        <p className="text-xs text-text-muted">{t('student_profile.not_found_desc')}</p>
+        <Link to="/students" className="inline-block px-5 py-2.5 rounded-xl bg-primary text-white font-bold text-xs">
+          {t('student_profile.return_btn')}
+        </Link>
       </div>
     );
   }
@@ -109,7 +115,6 @@ export default function StudentProfilePage() {
   const { student, summary, enrollments, transfers, tahfizLogs, preschoolLogs, tutoringGrades, yearlyAttendanceRates, payments, timeline } = dossier;
 
   const handleOpenEdit = () => {
-    if (!student) return;
     setEditFormData({
       full_name: student.full_name || '',
       dob: student.dob ? student.dob.split('T')[0] : '',
@@ -120,11 +125,12 @@ export default function StudentProfilePage() {
       photo_url: student.photo_url || '',
       notes: student.notes || ''
     });
+    setEditPhotoFile(null);
     setEditPhotoPreview(student.photo_url || null);
     setEditModalOpen(true);
   };
 
-  const handleEditPhotoSelect = async (e) => {
+  const handleEditPhotoSelect = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -133,26 +139,9 @@ export default function StudentProfilePage() {
       return;
     }
 
-    try {
-      setUploadingEditPhoto(true);
-      const data = new FormData();
-      data.append('file', file);
-      data.append('type', 'student_photo');
-
-      const res = await api.post('/settings/upload-assets', data, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-
-      if (res.success && res.url) {
-        setEditPhotoPreview(res.url);
-        setEditFormData(prev => ({ ...prev, photo_url: res.url }));
-        showNotification(t('student_profile.change_photo'), 'success');
-      }
-    } catch (err) {
-      showNotification(err.message || t('common.error'), 'error');
-    } finally {
-      setUploadingEditPhoto(false);
-    }
+    setEditPhotoFile(file);
+    const localUrl = URL.createObjectURL(file);
+    setEditPhotoPreview(localUrl);
   };
 
   const handleSaveEdit = async (e) => {
@@ -164,15 +153,37 @@ export default function StudentProfilePage() {
 
     try {
       setSavingEdit(true);
-      const res = await api.put(`/students/${student.id}`, editFormData);
+      let finalPhotoUrl = editFormData.photo_url || '';
+
+      if (editPhotoFile) {
+        setUploadingEditPhoto(true);
+        const data = new FormData();
+        data.append('type', 'students');
+        data.append('file', editPhotoFile);
+
+        const uploadRes = await api.post('/settings/upload-assets?type=students', data, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+
+        if (uploadRes?.success && uploadRes?.url) {
+          finalPhotoUrl = uploadRes.url;
+        }
+      }
+
+      const res = await api.put(`/students/${student.id}`, {
+        ...editFormData,
+        photo_url: finalPhotoUrl
+      });
       if (res.success) {
         showNotification(res.message || t('common.saved'), 'success');
         setEditModalOpen(false);
+        setEditPhotoFile(null);
         fetchDossier();
       }
     } catch (err) {
       showNotification(err.message || t('common.error'), 'error');
     } finally {
+      setUploadingEditPhoto(false);
       setSavingEdit(false);
     }
   };
@@ -900,6 +911,7 @@ export default function StudentProfilePage() {
                       type="button"
                       onClick={() => {
                         setEditPhotoPreview(null);
+                        setEditPhotoFile(null);
                         setEditFormData(prev => ({ ...prev, photo_url: '' }));
                       }}
                       className="text-xs text-rose-500 mx-2 hover:underline"

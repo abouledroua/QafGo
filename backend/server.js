@@ -2,6 +2,19 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const uploadDir = path.resolve(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+['students', 'teachers', 'logos', 'stamps', 'general'].forEach((sub) => {
+  const p = path.join(uploadDir, sub);
+  if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+});
 
 import authRoutes from './routes/authRoutes.js';
 import academicYearRoutes from './routes/academicYearRoutes.js';
@@ -18,6 +31,8 @@ import classroomRoutes from './routes/classroomRoutes.js';
 import timetableRoutes from './routes/timetableRoutes.js';
 
 import i18nMiddleware from './middleware/i18nMiddleware.js';
+import { ensureDefaultSettingsRow } from './controllers/settingsController.js';
+import { ensureDefaultAdminUser } from './controllers/authController.js';
 
 dotenv.config();
 
@@ -32,7 +47,7 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(i18nMiddleware);
-app.use('/uploads', express.static(path.resolve('./uploads')));
+app.use('/uploads', express.static(uploadDir));
 
 // Health Check
 app.get('/api/health', (req, res) => {
@@ -60,9 +75,15 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, message: 'حدث خطأ غير متوقع في الخادم', error: err.message });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`====================================================`);
   console.log(`🚀 خادم منصة قاف غو (QafGo API) يعمل بنجاح على المنفذ: ${PORT}`);
   console.log(`🔗 رابط الخادم: http://localhost:${PORT}`);
   console.log(`====================================================`);
+  try {
+    await ensureDefaultSettingsRow();
+    await ensureDefaultAdminUser();
+  } catch (err) {
+    console.error('Failed to initialize default database rows on startup:', err);
+  }
 });

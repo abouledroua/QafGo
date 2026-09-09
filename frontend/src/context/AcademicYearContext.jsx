@@ -24,6 +24,9 @@ export const AcademicYearProvider = ({ children }) => {
 
         setSelectedYearId(initial);
         localStorage.setItem('qafgo_academic_year_id', initial.toString());
+      } else {
+        setAcademicYears([]);
+        setSelectedYearId(null);
       }
     } catch (err) {
       console.error('Failed to load academic years:', err);

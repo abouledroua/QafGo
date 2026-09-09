@@ -33,6 +33,10 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('PROFILE'); // 'PROFILE' | 'SYSTEM' | 'TRACKS'
   const [formData, setFormData] = useState({ ...settings });
   const [saving, setSaving] = useState(false);
+  const [logoFile, setLogoFile] = useState(null);
+  const [stampFile, setStampFile] = useState(null);
+  const [logoPreview, setLogoPreview] = useState(null);
+  const [stampPreview, setStampPreview] = useState(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingStamp, setUploadingStamp] = useState(false);
 
@@ -48,6 +52,10 @@ export default function SettingsPage() {
         enable_tutoring_track: Boolean(settings.enable_tutoring_track),
         auto_backup_enabled: Boolean(settings.auto_backup_enabled)
       });
+      setLogoPreview(null);
+      setStampPreview(null);
+      setLogoFile(null);
+      setStampFile(null);
     }
   }, [settings]);
 
@@ -55,44 +63,48 @@ export default function SettingsPage() {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleLogoUpload = async (e) => {
+  const handleLogoUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    try {
-      setUploadingLogo(true);
-      const url = await uploadAsset(file, 'logo');
-      setFormData(prev => ({ ...prev, logo_url: url }));
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setUploadingLogo(false);
-    }
+    setLogoFile(file);
+    setLogoPreview(URL.createObjectURL(file));
   };
 
-  const handleStampUpload = async (e) => {
+  const handleStampUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    try {
-      setUploadingStamp(true);
-      const url = await uploadAsset(file, 'stamp');
-      setFormData(prev => ({ ...prev, stamp_signature_url: url }));
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setUploadingStamp(false);
-    }
+    setStampFile(file);
+    setStampPreview(URL.createObjectURL(file));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
       setSaving(true);
-      await updateSettings(formData);
+      let updatedFormData = { ...formData };
+
+      if (logoFile) {
+        setUploadingLogo(true);
+        const url = await uploadAsset(logoFile, 'logo');
+        if (url) updatedFormData.logo_url = url;
+      }
+
+      if (stampFile) {
+        setUploadingStamp(true);
+        const url = await uploadAsset(stampFile, 'stamp');
+        if (url) updatedFormData.stamp_signature_url = url;
+      }
+
+      await updateSettings(updatedFormData);
+      setLogoFile(null);
+      setStampFile(null);
+      setLogoPreview(null);
+      setStampPreview(null);
     } catch (err) {
       console.error(err);
     } finally {
+      setUploadingLogo(false);
+      setUploadingStamp(false);
       setSaving(false);
     }
   };
@@ -303,10 +315,14 @@ export default function SettingsPage() {
                       <span className="text-sm font-bold text-text-main block">{t('settings.school_logo_title')}</span>
                       <span className="text-xs text-text-muted">{t('settings.school_logo_hint')}</span>
                     </div>
-                    {formData.logo_url && (
+                    {(logoPreview || formData.logo_url) && (
                       <button
                         type="button"
-                        onClick={() => handleChange('logo_url', null)}
+                        onClick={() => {
+                          setLogoFile(null);
+                          setLogoPreview(null);
+                          handleChange('logo_url', null);
+                        }}
                         className="text-xs text-rose-500 hover:underline flex items-center gap-1"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -317,8 +333,8 @@ export default function SettingsPage() {
 
                   <div className="flex items-center gap-4">
                     <div className="w-20 h-20 rounded-2xl border-2 border-dashed border-border bg-surface-card flex items-center justify-center overflow-hidden flex-shrink-0 shadow-inner">
-                      {formData.logo_url ? (
-                        <img src={formData.logo_url} alt={t('settings.school_logo_title')} className="w-full h-full object-contain p-1" />
+                      {logoPreview || formData.logo_url ? (
+                        <img src={logoPreview || formData.logo_url} alt={t('settings.school_logo_title')} className="w-full h-full object-contain p-1" />
                       ) : (
                         <ImageIcon className="w-8 h-8 text-text-muted/40" />
                       )}
@@ -339,7 +355,7 @@ export default function SettingsPage() {
                         className="flex items-center gap-2 px-4 py-2 rounded-xl bg-surface-card hover:bg-surface-hover border border-border text-xs font-bold text-text-main shadow-sm transition-colors"
                       >
                         <UploadCloud className="w-4 h-4 text-primary" />
-                        <span>{uploadingLogo ? t('settings.uploading') : t('settings.upload_logo_btn')}</span>
+                        <span>{uploadingLogo ? t('settings.uploading') : (logoPreview || formData.logo_url) ? t('settings.upload_logo_btn') : t('settings.upload_logo_btn')}</span>
                       </button>
                       <p className="text-[11px] text-text-muted">
                         {t('settings.logo_formats_hint')}
@@ -355,10 +371,14 @@ export default function SettingsPage() {
                       <span className="text-sm font-bold text-text-main block">{t('settings.school_stamp_title')}</span>
                       <span className="text-xs text-text-muted">{t('settings.school_stamp_hint')}</span>
                     </div>
-                    {formData.stamp_signature_url && (
+                    {(stampPreview || formData.stamp_signature_url) && (
                       <button
                         type="button"
-                        onClick={() => handleChange('stamp_signature_url', null)}
+                        onClick={() => {
+                          setStampFile(null);
+                          setStampPreview(null);
+                          handleChange('stamp_signature_url', null);
+                        }}
                         className="text-xs text-rose-500 hover:underline flex items-center gap-1"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -369,8 +389,8 @@ export default function SettingsPage() {
 
                   <div className="flex items-center gap-4">
                     <div className="w-20 h-20 rounded-2xl border-2 border-dashed border-border bg-surface-card flex items-center justify-center overflow-hidden flex-shrink-0 shadow-inner">
-                      {formData.stamp_signature_url ? (
-                        <img src={formData.stamp_signature_url} alt={t('settings.school_stamp_title')} className="w-full h-full object-contain p-1" />
+                      {stampPreview || formData.stamp_signature_url ? (
+                        <img src={stampPreview || formData.stamp_signature_url} alt={t('settings.school_stamp_title')} className="w-full h-full object-contain p-1" />
                       ) : (
                         <Stamp className="w-8 h-8 text-text-muted/40" />
                       )}

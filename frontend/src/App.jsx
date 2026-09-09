@@ -23,11 +23,34 @@ import SettingsPage from './pages/SettingsPage';
 import TeachersPage from './pages/TeachersPage';
 import ClassroomsTimetablePage from './pages/ClassroomsTimetablePage';
 
+import { useAuth } from './context/AuthContext';
+import LoginPage from './pages/LoginPage';
+import MandatoryAcademicYearModal from './components/MandatoryAcademicYearModal';
+
 function AppContent() {
-  const { dir } = useLanguage();
+  const { dir, t } = useLanguage();
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-surface text-text-main" dir={dir}>
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm font-bold text-text-muted">{t('common.loading')}</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage />;
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-surface text-text-main transition-colors" dir={dir}>
+      {/* Mandatory Academic Year Modal when no academic year exists */}
+      <MandatoryAcademicYearModal />
+
       {/* Global Navbar */}
       <Navbar />
 

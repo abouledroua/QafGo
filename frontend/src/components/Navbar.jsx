@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAcademicYear } from '../context/AcademicYearContext';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -26,6 +27,12 @@ export default function Navbar() {
   const { academicYears, selectedYearId, selectedYearObj, selectYear } = useAcademicYear();
   const { themes, currentTheme, setTheme, activeThemeObj } = useTheme();
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
   const { settings } = useSettings();
   const { isOpen, toggleSidebar } = useSidebar();
   const { t, isRtl } = useLanguage();
@@ -207,7 +214,7 @@ export default function Navbar() {
             </div>
             {user && (
               <button
-                onClick={logout}
+                onClick={handleLogout}
                 className="p-1.5 text-text-muted hover:text-rose-600 rounded-xl hover:bg-rose-500/10 transition-colors"
                 title={t('nav.logout')}
               >

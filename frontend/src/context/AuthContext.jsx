@@ -17,26 +17,26 @@ export const AuthProvider = ({ children }) => {
             setUser(res.user);
           } else {
             localStorage.removeItem('qafgo_token');
+            setUser(null);
           }
         } catch (e) {
           localStorage.removeItem('qafgo_token');
+          setUser(null);
         }
       } else {
-        // Auto-login default admin for smooth demo experience
-        try {
-          const res = await api.post('/auth/login', { username: 'admin', password: 'admin123' });
-          if (res.success) {
-            localStorage.setItem('qafgo_token', res.token);
-            setUser(res.user);
-          }
-        } catch (err) {
-          console.warn('Auto-login notice:', err);
-        }
+        setUser(null);
       }
       setLoading(false);
     };
 
     initAuth();
+
+    const handleUnauthorized = () => {
+      logout();
+    };
+
+    window.addEventListener('auth:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
   }, []);
 
   const login = async (username, password) => {

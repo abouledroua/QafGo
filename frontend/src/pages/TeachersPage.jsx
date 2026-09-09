@@ -47,6 +47,7 @@ export default function TeachersPage() {
   const [editingTeacher, setEditingTeacher] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [photoFile, setPhotoFile] = useState(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [formData, setFormData] = useState({
     full_name: '',
@@ -122,6 +123,7 @@ export default function TeachersPage() {
   const handleOpenAddModal = () => {
     setEditingTeacher(null);
     setPhotoPreview(null);
+    setPhotoFile(null);
     setFormData({
       full_name: '',
       phone: '',
@@ -137,6 +139,7 @@ export default function TeachersPage() {
 
   const handleOpenEditModal = (teacher) => {
     setEditingTeacher(teacher);
+    setPhotoFile(null);
     setPhotoPreview(teacher.photo_url || null);
     
     // Parse track_types from array or comma-separated string
@@ -178,7 +181,7 @@ export default function TeachersPage() {
     });
   };
 
-  const handlePhotoSelect = async (e) => {
+  const handlePhotoSelect = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -187,26 +190,9 @@ export default function TeachersPage() {
       return;
     }
 
-    try {
-      setUploadingPhoto(true);
-      const data = new FormData();
-      data.append('file', file);
-      data.append('type', 'teacher_photo');
-
-      const res = await api.post('/settings/upload-assets', data, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-
-      if (res?.success && res?.url) {
-        setPhotoPreview(res.url);
-        setFormData(prev => ({ ...prev, photo_url: res.url }));
-        showNotification(t('teachers.change_photo'), 'success');
-      }
-    } catch (err) {
-      showNotification(err.message || t('common.error'), 'error');
-    } finally {
-      setUploadingPhoto(false);
-    }
+    setPhotoFile(file);
+    const localUrl = URL.createObjectURL(file);
+    setPhotoPreview(localUrl);
   };
 
   const handleSubmit = async (e) => {
@@ -216,19 +202,38 @@ export default function TeachersPage() {
       return;
     }
 
-    const payload = {
-      ...formData,
-      track_types: formData.track_types?.length > 0 ? formData.track_types : ['HALAQA'],
-      track_type: formData.track_types?.length > 0 ? formData.track_types.join(',') : 'HALAQA'
-    };
-
     try {
       setSubmitting(true);
+      let finalPhotoUrl = formData.photo_url || '';
+
+      if (photoFile) {
+        setUploadingPhoto(true);
+        const data = new FormData();
+        data.append('type', 'teachers');
+        data.append('file', photoFile);
+
+        const uploadRes = await api.post('/settings/upload-assets?type=teachers', data, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+
+        if (uploadRes?.success && uploadRes?.url) {
+          finalPhotoUrl = uploadRes.url;
+        }
+      }
+
+      const payload = {
+        ...formData,
+        photo_url: finalPhotoUrl,
+        track_types: formData.track_types?.length > 0 ? formData.track_types : ['HALAQA'],
+        track_type: formData.track_types?.length > 0 ? formData.track_types.join(',') : 'HALAQA'
+      };
+
       if (editingTeacher) {
         const res = await api.put(`/teachers/${editingTeacher.id}`, payload);
         if (res?.success) {
           showNotification(res.message || t('common.saved'), 'success');
           setModalOpen(false);
+          setPhotoFile(null);
           fetchTeachers();
         }
       } else {
@@ -236,6 +241,7 @@ export default function TeachersPage() {
         if (res?.success) {
           showNotification(res.message || t('common.saved'), 'success');
           setModalOpen(false);
+          setPhotoFile(null);
           fetchTeachers();
         }
       }
@@ -243,6 +249,7 @@ export default function TeachersPage() {
       const msg = error.message || t('common.error');
       showNotification(msg, 'error');
     } finally {
+      setUploadingPhoto(false);
       setSubmitting(false);
     }
   };
@@ -649,6 +656,7 @@ export default function TeachersPage() {
                         type="button"
                         onClick={() => {
                           setPhotoPreview(null);
+                          setPhotoFile(null);
                           setFormData(prev => ({ ...prev, photo_url: '' }));
                         }}
                         className="absolute top-1 left-1 bg-black/70 hover:bg-black text-white p-1 rounded-full text-[10px]"
@@ -686,6 +694,7 @@ export default function TeachersPage() {
                         type="button"
                         onClick={() => {
                           setPhotoPreview(null);
+                          setPhotoFile(null);
                           setFormData(prev => ({ ...prev, photo_url: '' }));
                         }}
                         className="text-xs text-rose-500 hover:text-rose-700 font-bold px-2 py-1"

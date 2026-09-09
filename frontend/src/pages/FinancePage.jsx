@@ -55,7 +55,10 @@ export default function FinancePage() {
   const [selectedPaymentForReceipt, setSelectedPaymentForReceipt] = useState(null);
 
   const fetchFinanceData = useCallback(async () => {
-    if (!selectedYearId) return;
+    if (!selectedYearId) {
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
 

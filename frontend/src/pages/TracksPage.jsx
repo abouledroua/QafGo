@@ -58,7 +58,10 @@ export default function TracksPage() {
   });
 
   const fetchGroups = useCallback(async () => {
-    if (!selectedYearId) return;
+    if (!selectedYearId) {
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       let url = `/groups?academic_year_id=${selectedYearId}`;

@@ -53,6 +53,7 @@ export default function StudentsPage() {
     discount_value: 0
   });
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [photoFile, setPhotoFile] = useState(null);
   const [availableGroups, setAvailableGroups] = useState([]);
 
   // Edit Student Modal
@@ -69,6 +70,7 @@ export default function StudentsPage() {
     notes: ''
   });
   const [editPhotoPreview, setEditPhotoPreview] = useState(null);
+  const [editPhotoFile, setEditPhotoFile] = useState(null);
   const [uploadingEditPhoto, setUploadingEditPhoto] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
 
@@ -109,7 +111,7 @@ export default function StudentsPage() {
     }
   }, [selectedYearId]);
 
-  const handlePhotoSelect = async (e) => {
+  const handlePhotoSelect = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -118,26 +120,9 @@ export default function StudentsPage() {
       return;
     }
 
-    try {
-      setUploadingPhoto(true);
-      const data = new FormData();
-      data.append('file', file);
-      data.append('type', 'student_photo');
-
-      const res = await api.post('/settings/upload-assets', data, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-
-      if (res.success && res.url) {
-        setPhotoPreview(res.url);
-        setFormData(prev => ({ ...prev, photo_url: res.url }));
-        showNotification(t('students.photo_upload_success'), 'success');
-      }
-    } catch (err) {
-      showNotification(err.message || t('students.photo_upload_failed'), 'error');
-    } finally {
-      setUploadingPhoto(false);
-    }
+    setPhotoFile(file);
+    const localUrl = URL.createObjectURL(file);
+    setPhotoPreview(localUrl);
   };
 
   const handleCreateStudent = async (e) => {
@@ -148,8 +133,26 @@ export default function StudentsPage() {
     }
 
     try {
+      setUploadingPhoto(true);
+      let finalPhotoUrl = formData.photo_url || '';
+
+      if (photoFile) {
+        const data = new FormData();
+        data.append('type', 'students');
+        data.append('file', photoFile);
+
+        const uploadRes = await api.post('/settings/upload-assets?type=students', data, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+
+        if (uploadRes?.success && uploadRes?.url) {
+          finalPhotoUrl = uploadRes.url;
+        }
+      }
+
       const payload = {
         ...formData,
+        photo_url: finalPhotoUrl,
         academic_year_id: selectedYearId,
         group_id: formData.group_id ? parseInt(formData.group_id, 10) : null,
         discount_value: parseFloat(formData.discount_value) || 0
@@ -160,6 +163,7 @@ export default function StudentsPage() {
         showNotification(res.message || t('students.student_created_success'), 'success');
         setModalOpen(false);
         setPhotoPreview(null);
+        setPhotoFile(null);
         setFormData({
           full_name: '',
           dob: '',
@@ -177,6 +181,8 @@ export default function StudentsPage() {
       }
     } catch (err) {
       showNotification(err.message || t('students.student_created_failed'), 'error');
+    } finally {
+      setUploadingPhoto(false);
     }
   };
 
@@ -192,11 +198,12 @@ export default function StudentsPage() {
       photo_url: student.photo_url || '',
       notes: student.notes || ''
     });
+    setEditPhotoFile(null);
     setEditPhotoPreview(student.photo_url || null);
     setEditModalOpen(true);
   };
 
-  const handleEditPhotoSelect = async (e) => {
+  const handleEditPhotoSelect = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -205,26 +212,9 @@ export default function StudentsPage() {
       return;
     }
 
-    try {
-      setUploadingEditPhoto(true);
-      const data = new FormData();
-      data.append('file', file);
-      data.append('type', 'student_photo');
-
-      const res = await api.post('/settings/upload-assets', data, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-
-      if (res.success && res.url) {
-        setEditPhotoPreview(res.url);
-        setEditFormData(prev => ({ ...prev, photo_url: res.url }));
-        showNotification(t('students.photo_upload_success'), 'success');
-      }
-    } catch (err) {
-      showNotification(err.message || t('students.photo_upload_failed'), 'error');
-    } finally {
-      setUploadingEditPhoto(false);
-    }
+    setEditPhotoFile(file);
+    const localUrl = URL.createObjectURL(file);
+    setEditPhotoPreview(localUrl);
   };
 
   const handleSaveEdit = async (e) => {
@@ -236,15 +226,37 @@ export default function StudentsPage() {
 
     try {
       setSavingEdit(true);
-      const res = await api.put(`/students/${editingStudent.id}`, editFormData);
+      let finalPhotoUrl = editFormData.photo_url || '';
+
+      if (editPhotoFile) {
+        setUploadingEditPhoto(true);
+        const data = new FormData();
+        data.append('type', 'students');
+        data.append('file', editPhotoFile);
+
+        const uploadRes = await api.post('/settings/upload-assets?type=students', data, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+
+        if (uploadRes?.success && uploadRes?.url) {
+          finalPhotoUrl = uploadRes.url;
+        }
+      }
+
+      const res = await api.put(`/students/${editingStudent.id}`, {
+        ...editFormData,
+        photo_url: finalPhotoUrl
+      });
       if (res.success) {
         showNotification(res.message || t('students.student_updated_success'), 'success');
         setEditModalOpen(false);
+        setEditPhotoFile(null);
         fetchStudents();
       }
     } catch (err) {
       showNotification(err.message || t('students.student_updated_failed'), 'error');
     } finally {
+      setUploadingEditPhoto(false);
       setSavingEdit(false);
     }
   };
@@ -792,6 +804,7 @@ export default function StudentsPage() {
                       type="button"
                       onClick={() => {
                         setEditPhotoPreview(null);
+                        setEditPhotoFile(null);
                         setEditFormData(prev => ({ ...prev, photo_url: '' }));
                       }}
                       className={`text-xs text-rose-500 ${isRtl ? 'mr-2' : 'ml-2'} hover:underline`}

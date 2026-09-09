@@ -17,7 +17,10 @@ export default function TransfersPage() {
   const [searchTerm, setSearchTerm] = useState('');
 
   const fetchTransfers = useCallback(async () => {
-    if (!selectedYearId) return;
+    if (!selectedYearId) {
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       const res = await api.get(`/transfers?academic_year_id=${selectedYearId}`);

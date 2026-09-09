@@ -14,14 +14,19 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
-  CalendarDays
+  CalendarDays,
+  LogOut
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useAcademicYear } from '../context/AcademicYearContext';
 import { useSettings } from '../context/SettingsContext';
 import { useSidebar } from '../context/SidebarContext';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
 
 export default function Sidebar() {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
   const { selectedYearObj } = useAcademicYear();
   const { settings } = useSettings();
   const { t, isRtl, dir } = useLanguage();
@@ -33,16 +38,47 @@ export default function Sidebar() {
     closeSidebar 
   } = useSidebar();
 
-  const navItems = [
-    { to: '/', label: t('sidebar.dashboard'), icon: LayoutDashboard, exact: true },
-    { to: '/tracks', label: t('sidebar.groups_tracks'), icon: Layers },
-    { to: '/timetable', label: t('sidebar.classrooms_timetable'), icon: CalendarDays },
-    { to: '/teachers', label: t('sidebar.teachers'), icon: GraduationCap },
-    { to: '/students', label: t('sidebar.students'), icon: Users },
-    { to: '/finance', label: t('sidebar.finance'), icon: Wallet },
-    { to: '/transfers', label: t('sidebar.transfers'), icon: ArrowLeftRight },
-    { to: '/rollover', label: t('sidebar.rollover'), icon: Sparkles },
-    { to: '/settings', label: t('sidebar.settings'), icon: Settings },
+  const handleLogout = () => {
+    if (isMobile) closeSidebar();
+    logout();
+    navigate('/');
+  };
+
+  const navSections = [
+    {
+      id: 'dashboard',
+      items: [
+        { to: '/', label: t('sidebar.dashboard'), icon: LayoutDashboard, exact: true },
+      ]
+    },
+    {
+      id: 'students',
+      items: [
+        { to: '/students', label: t('sidebar.students'), icon: Users },
+        { to: '/transfers', label: t('sidebar.transfers'), icon: ArrowLeftRight },
+      ]
+    },
+    {
+      id: 'academic',
+      items: [
+        { to: '/tracks', label: t('sidebar.groups_tracks'), icon: Layers },
+        { to: '/timetable', label: t('sidebar.classrooms_timetable'), icon: CalendarDays },
+        { to: '/teachers', label: t('sidebar.teachers'), icon: GraduationCap },
+      ]
+    },
+    {
+      id: 'finance',
+      items: [
+        { to: '/finance', label: t('sidebar.finance'), icon: Wallet },
+      ]
+    },
+    {
+      id: 'system',
+      items: [
+        { to: '/rollover', label: t('sidebar.rollover'), icon: Sparkles },
+        { to: '/settings', label: t('sidebar.settings'), icon: Settings },
+      ]
+    }
   ];
 
   const handleLinkClick = () => {
@@ -112,28 +148,35 @@ export default function Sidebar() {
             </div>
 
             {/* Navigation Links */}
-            <nav className="space-y-1.5">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.exact}
-                    onClick={handleLinkClick}
-                    className={({ isActive }) => `
-                      flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold transition-all
-                      ${isActive 
-                        ? `bg-primary text-white shadow-lg shadow-primary/25 ${isRtl ? '-translate-x-1' : 'translate-x-1'}` 
-                        : 'text-text-muted hover:text-text-main hover:bg-surface'
-                      }
-                    `}
-                  >
-                    <Icon className="w-5 h-5 flex-shrink-0" />
-                    <span>{item.label}</span>
-                  </NavLink>
-                );
-              })}
+            <nav className="space-y-1">
+              {navSections.map((section, sIdx) => (
+                <React.Fragment key={section.id}>
+                  {sIdx > 0 && <div className="my-2.5 border-t border-border/70" />}
+                  <div className="space-y-1">
+                    {section.items.map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          end={item.exact}
+                          onClick={handleLinkClick}
+                          className={({ isActive }) => `
+                            flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold transition-all
+                            ${isActive 
+                              ? `bg-primary text-white shadow-lg shadow-primary/25 ${isRtl ? '-translate-x-1' : 'translate-x-1'}` 
+                              : 'text-text-muted hover:text-text-main hover:bg-surface'
+                            }
+                          `}
+                        >
+                          <Icon className="w-5 h-5 flex-shrink-0" />
+                          <span>{item.label}</span>
+                        </NavLink>
+                      );
+                    })}
+                  </div>
+                </React.Fragment>
+              ))}
             </nav>
 
             {/* Active Tracks Guide */}
@@ -162,6 +205,18 @@ export default function Sidebar() {
                 )}
               </div>
             </div>
+          </div>
+
+          {/* Logout Action (Mobile) */}
+          <div className="pt-2 mb-2">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="w-full flex items-center justify-center gap-2.5 p-3 rounded-2xl text-xs font-extrabold text-rose-600 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition-all cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>{t('nav.logout')}</span>
+            </button>
           </div>
 
           {/* Footer */}
@@ -250,29 +305,38 @@ export default function Sidebar() {
         )}
 
         {/* Navigation Links */}
-        <nav className="space-y-1.5">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.exact}
-                title={isCollapsed ? item.label : undefined}
-                className={({ isActive }) => `
-                  flex items-center rounded-2xl font-bold transition-all
-                  ${isCollapsed ? 'justify-center p-3 text-sm' : 'gap-3 px-4 py-3 text-sm'}
-                  ${isActive 
-                    ? `bg-primary text-white shadow-lg shadow-primary/25 ${isRtl ? '-translate-x-1' : 'translate-x-1'}` 
-                    : 'text-text-muted hover:text-text-main hover:bg-surface'
-                  }
-                `}
-              >
-                <Icon className="w-5 h-5 flex-shrink-0" />
-                {!isCollapsed && <span className="truncate">{item.label}</span>}
-              </NavLink>
-            );
-          })}
+        <nav className="space-y-1">
+          {navSections.map((section, sIdx) => (
+            <React.Fragment key={section.id}>
+              {sIdx > 0 && (
+                <div className={`my-2.5 border-t border-border/70 ${isCollapsed ? 'mx-auto w-6' : 'mx-1'}`} />
+              )}
+              <div className="space-y-1">
+                {section.items.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      end={item.exact}
+                      title={isCollapsed ? item.label : undefined}
+                      className={({ isActive }) => `
+                        flex items-center rounded-2xl font-bold transition-all
+                        ${isCollapsed ? 'justify-center p-3 text-sm' : 'gap-3 px-4 py-3 text-sm'}
+                        ${isActive 
+                          ? `bg-primary text-white shadow-lg shadow-primary/25 ${isRtl ? '-translate-x-1' : 'translate-x-1'}` 
+                          : 'text-text-muted hover:text-text-main hover:bg-surface'
+                        }
+                      `}
+                    >
+                      <Icon className="w-5 h-5 flex-shrink-0" />
+                      {!isCollapsed && <span className="truncate">{item.label}</span>}
+                    </NavLink>
+                  );
+                })}
+              </div>
+            </React.Fragment>
+          ))}
         </nav>
 
         {/* Concurrent Tracks Quick Switch Filter Guide */}
@@ -306,17 +370,31 @@ export default function Sidebar() {
 
       </div>
 
-      {/* Footer Info */}
-      {!isCollapsed && (
-        <div className="pt-4 border-t border-border/60 text-center">
-          <span className="text-[11px] font-bold text-text-muted block">
-            {t('sidebar.app_name')}
-          </span>
-          <span className="text-[10px] text-text-muted/80">
-            {t('sidebar.all_rights_reserved')}
-          </span>
-        </div>
-      )}
+      {/* Footer Info & Logout */}
+      <div className="pt-2 border-t border-border/60 flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={handleLogout}
+          className={`w-full flex items-center ${
+            isCollapsed ? 'justify-center p-2.5' : 'justify-start gap-3 px-3 py-2.5'
+          } rounded-2xl text-xs font-bold text-rose-600 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition-all cursor-pointer`}
+          title={t('nav.logout')}
+        >
+          <LogOut className="w-4 h-4 flex-shrink-0" />
+          {!isCollapsed && <span>{t('nav.logout')}</span>}
+        </button>
+
+        {!isCollapsed && (
+          <div className="text-center pt-1">
+            <span className="text-[11px] font-bold text-text-muted block">
+              {t('sidebar.app_name')}
+            </span>
+            <span className="text-[10px] text-text-muted/80">
+              {t('sidebar.all_rights_reserved')}
+            </span>
+          </div>
+        )}
+      </div>
     </aside>
   );
 }
