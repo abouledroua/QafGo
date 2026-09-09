@@ -25,7 +25,8 @@ import {
   Building2,
   Layers,
   Wrench,
-  Check
+  Check,
+  Sparkles
 } from 'lucide-react';
 
 const DAYS_OF_WEEK = [
@@ -199,13 +200,39 @@ export default function ClassroomsTimetablePage() {
     };
   }, [classrooms, sessions]);
 
+  // Helper: Auto-generate unique classroom code
+  const generateCodeForType = useCallback((type = 'GENERAL', existingList = classrooms, currentId = null) => {
+    let prefix = 'CR';
+    const t = (type || '').toUpperCase();
+    if (t === 'HALAQA') prefix = 'HQ';
+    else if (t === 'PRESCHOOL') prefix = 'PS';
+    else if (t === 'LAB') prefix = 'LAB';
+
+    const existingCodes = new Set(
+      existingList
+        .filter(c => currentId ? c.id !== currentId : true)
+        .map(c => (c.code || '').trim().toUpperCase())
+        .filter(Boolean)
+    );
+
+    let counter = 1;
+    while (counter < 10000) {
+      const code = `${prefix}-${String(counter).padStart(2, '0')}`;
+      if (!existingCodes.has(code) && !existingCodes.has(String(counter))) {
+        return code;
+      }
+      counter++;
+    }
+    return `${prefix}-${Date.now().toString().slice(-4)}`;
+  }, [classrooms]);
+
   // --- Handlers: Classroom Modal ---
   const handleOpenClassroomModal = (classroom = null) => {
     if (classroom) {
       setEditingClassroom(classroom);
       setClassroomForm({
         name: classroom.name || '',
-        code: classroom.code || '',
+        code: classroom.code || generateCodeForType(classroom.type || 'GENERAL', classrooms, classroom.id),
         capacity: classroom.capacity || 25,
         type: classroom.type || 'GENERAL',
         equipment: classroom.equipment || '',
@@ -213,9 +240,10 @@ export default function ClassroomsTimetablePage() {
       });
     } else {
       setEditingClassroom(null);
+      const autoCode = generateCodeForType('GENERAL', classrooms);
       setClassroomForm({
         name: '',
-        code: '',
+        code: autoCode,
         capacity: 25,
         type: 'GENERAL',
         equipment: '',
@@ -225,6 +253,19 @@ export default function ClassroomsTimetablePage() {
     setClassroomModalOpen(true);
   };
 
+  const handleClassroomTypeChange = (newType) => {
+    setClassroomForm(prev => {
+      const currentCode = (prev.code || '').trim().toUpperCase();
+      // If code is empty or matches auto-generated prefix of another type, regenerate it for the new type
+      const isAutoLike = !currentCode || /^(CR|HQ|PS|LAB)-\d+$/i.test(currentCode);
+      return {
+        ...prev,
+        type: newType,
+        code: isAutoLike ? generateCodeForType(newType, classrooms, editingClassroom?.id) : prev.code
+      };
+    });
+  };
+
   const handleSaveClassroom = async (e) => {
     e.preventDefault();
     if (!classroomForm.name.trim()) {
@@ -232,13 +273,23 @@ export default function ClassroomsTimetablePage() {
       return;
     }
 
+    // Auto-generate code if cleared or empty
+    const finalCode = (classroomForm.code && classroomForm.code.trim())
+      ? classroomForm.code.trim()
+      : generateCodeForType(classroomForm.type, classrooms, editingClassroom?.id);
+
+    const payload = {
+      ...classroomForm,
+      code: finalCode
+    };
+
     try {
       setSavingClassroom(true);
       let res;
       if (editingClassroom) {
-        res = await api.put(`/classrooms/${editingClassroom.id}`, classroomForm);
+        res = await api.put(`/classrooms/${editingClassroom.id}`, payload);
       } else {
-        res = await api.post('/classrooms', classroomForm);
+        res = await api.post('/classrooms', payload);
       }
 
       if (res.success) {
@@ -915,13 +966,31 @@ export default function ClassroomsTimetablePage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-text-main mb-1.5">{t('classrooms_timetable.room_code')}</label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-bold text-text-main">{t('classrooms_timetable.room_code')}</label>
+                    <button
+                      type="button"
+                      onClick={() => setClassroomForm(prev => ({
+                        ...prev,
+                        code: generateCodeForType(prev.type, classrooms, editingClassroom?.id)
+                      }))}
+                      className="text-[11px] font-bold text-primary hover:text-primary-hover flex items-center gap-1 transition-colors px-1 py-0.5 rounded hover:bg-primary/10"
+                      title={t('classrooms_timetable.auto_generate_code')}
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      <span>{t('classrooms_timetable.auto_generate_code')}</span>
+                    </button>
+                  </div>
                   <input
                     type="text"
                     value={classroomForm.code}
                     onChange={(e) => setClassroomForm({ ...classroomForm, code: e.target.value })}
-                    className="w-full p-2.5 bg-surface border border-border rounded-xl text-xs font-bold text-text-main focus:outline-none focus:border-primary font-mono"
+                    placeholder={t('classrooms_timetable.room_code_placeholder')}
+                    className="w-full p-2.5 bg-surface border border-border rounded-xl text-xs font-bold text-text-main focus:outline-none focus:border-primary font-mono tracking-wider uppercase"
                   />
+                  <span className="text-[10px] text-text-muted mt-1 block leading-tight">
+                    {t('classrooms_timetable.room_code_hint')}
+                  </span>
                 </div>
               </div>
 
@@ -941,7 +1010,7 @@ export default function ClassroomsTimetablePage() {
                   <label className="block text-xs font-bold text-text-main mb-1.5">{t('classrooms_timetable.room_type')}</label>
                   <select
                     value={classroomForm.type}
-                    onChange={(e) => setClassroomForm({ ...classroomForm, type: e.target.value })}
+                    onChange={(e) => handleClassroomTypeChange(e.target.value)}
                     className="w-full p-2.5 bg-surface border border-border rounded-xl text-xs font-bold text-text-main focus:outline-none focus:border-primary"
                   >
                     <option value="GENERAL">{t('classrooms_timetable.type_general')}</option>

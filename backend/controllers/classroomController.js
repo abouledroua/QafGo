@@ -34,6 +34,45 @@ export const getClassroomById = async (req, res) => {
   }
 };
 
+// Helper: Auto-generate unique classroom code
+export const generateClassroomCode = async (type = 'GENERAL', currentId = null) => {
+  const [rows] = await pool.query('SELECT id, code FROM classrooms');
+  const existingCodes = new Set(
+    rows
+      .filter(r => currentId ? r.id !== parseInt(currentId, 10) : true)
+      .map(r => (r.code || '').trim().toUpperCase())
+      .filter(Boolean)
+  );
+
+  let prefix = 'CR';
+  const t = (type || '').toUpperCase();
+  if (t === 'HALAQA') prefix = 'HQ';
+  else if (t === 'PRESCHOOL') prefix = 'PS';
+  else if (t === 'LAB') prefix = 'LAB';
+
+  let counter = 1;
+  while (counter < 10000) {
+    const formatted = `${prefix}-${String(counter).padStart(2, '0')}`;
+    if (!existingCodes.has(formatted) && !existingCodes.has(String(counter))) {
+      return formatted;
+    }
+    counter++;
+  }
+  return `${prefix}-${Date.now().toString().slice(-4)}`;
+};
+
+// GET /api/classrooms/generate-code
+export const getGeneratedClassroomCode = async (req, res) => {
+  try {
+    const { type, current_id } = req.query;
+    const code = await generateClassroomCode(type, current_id);
+    return res.json({ success: true, code });
+  } catch (error) {
+    console.error('getGeneratedClassroomCode error:', error);
+    return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
+  }
+};
+
 // 3. Create a new classroom
 export const createClassroom = async (req, res) => {
   try {
@@ -43,12 +82,15 @@ export const createClassroom = async (req, res) => {
       return res.status(400).json({ success: false, message: req.t('bad_request') });
     }
 
+    // Auto-generate code if empty or cleared
+    const finalCode = (code && code.trim()) ? code.trim() : await generateClassroomCode(type || 'GENERAL');
+
     const [result] = await pool.query(`
       INSERT INTO classrooms (name, code, capacity, type, equipment, status)
       VALUES (?, ?, ?, ?, ?, ?)
     `, [
       name.trim(),
-      code ? code.trim() : null,
+      finalCode,
       parseInt(capacity, 10) || 25,
       type || 'GENERAL',
       equipment ? equipment.trim() : null,
@@ -81,13 +123,21 @@ export const updateClassroom = async (req, res) => {
 
     const current = existing[0];
 
+    // If user explicitly cleared the code or provided empty string, auto-generate a new one
+    let finalCode;
+    if (code !== undefined) {
+      finalCode = (code && code.trim()) ? code.trim() : await generateClassroomCode(type || current.type, id);
+    } else {
+      finalCode = current.code || await generateClassroomCode(type || current.type, id);
+    }
+
     await pool.query(`
       UPDATE classrooms
       SET name = ?, code = ?, capacity = ?, type = ?, equipment = ?, status = ?
       WHERE id = ?
     `, [
       name !== undefined ? name.trim() : current.name,
-      code !== undefined ? (code ? code.trim() : null) : current.code,
+      finalCode,
       capacity !== undefined ? (parseInt(capacity, 10) || 25) : current.capacity,
       type !== undefined ? type : current.type,
       equipment !== undefined ? (equipment ? equipment.trim() : null) : current.equipment,

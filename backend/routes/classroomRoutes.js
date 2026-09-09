@@ -2,6 +2,7 @@ import express from 'express';
 import {
   getAllClassrooms,
   getClassroomById,
+  getGeneratedClassroomCode,
   createClassroom,
   updateClassroom,
   deleteClassroom
@@ -10,6 +11,7 @@ import {
 const router = express.Router();
 
 router.get('/', getAllClassrooms);
+router.get('/generate-code', getGeneratedClassroomCode);
 router.get('/:id', getClassroomById);
 router.post('/', createClassroom);
 router.put('/:id', updateClassroom);
