@@ -107,6 +107,40 @@ export const getGroupById = async (req, res) => {
   }
 };
 
+// Helper to convert time "HH:mm" or "HH:mm:ss" to minutes
+const toMinutes = (timeStr) => {
+  if (!timeStr || typeof timeStr !== 'string') return null;
+  const parts = timeStr.trim().split(':');
+  if (parts.length < 2) return null;
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h) || isNaN(m)) return null;
+  return h * 60 + m;
+};
+
+// Check if any sessions overlap on the same day
+const hasOverlappingSessions = (sessions) => {
+  if (!Array.isArray(sessions) || sessions.length < 2) return false;
+  for (let i = 0; i < sessions.length; i++) {
+    for (let j = i + 1; j < sessions.length; j++) {
+      const s1 = sessions[i];
+      const s2 = sessions[j];
+      if (s1.day_of_week && s2.day_of_week && s1.day_of_week === s2.day_of_week) {
+        const start1 = toMinutes(s1.start_time);
+        const end1 = toMinutes(s1.end_time);
+        const start2 = toMinutes(s2.start_time);
+        const end2 = toMinutes(s2.end_time);
+        if (start1 !== null && end1 !== null && start2 !== null && end2 !== null) {
+          if (start1 < end2 && start2 < end1) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  return false;
+};
+
 export const createGroup = async (req, res) => {
   try {
     const {
@@ -118,11 +152,19 @@ export const createGroup = async (req, res) => {
       room,
       schedule,
       is_free,
-      monthly_fee
+      monthly_fee,
+      sessions
     } = req.body;
 
     if (!academic_year_id || !name || !track_type) {
       return res.status(400).json({ success: false, message: req.t('bad_request') });
+    }
+
+    if (track_type === 'TUTORING' && hasOverlappingSessions(sessions)) {
+      return res.status(400).json({
+        success: false,
+        message: req.t('schedule_overlap_error') || 'لا يمكن برمجة حصتين في نفس اليوم والتوقيت أو متداخلتين'
+      });
     }
 
     const fee = is_free ? 0.00 : (monthly_fee || 0.00);
@@ -142,10 +184,45 @@ export const createGroup = async (req, res) => {
       fee
     ]);
 
+    const newGroupId = result.insertId;
+
+    // If structured sessions provided, optionally populate timetable_sessions
+    if (Array.isArray(sessions) && sessions.length > 0) {
+      try {
+        let classroomId = null;
+        if (room) {
+          const [rooms] = await pool.query('SELECT id FROM classrooms WHERE name = ?', [room]);
+          if (rooms.length > 0) classroomId = rooms[0].id;
+        }
+
+        for (const s of sessions) {
+          if (s.day_of_week && s.start_time && s.end_time) {
+            const startVal = s.start_time.length === 5 ? `${s.start_time}:00` : s.start_time;
+            const endVal = s.end_time.length === 5 ? `${s.end_time}:00` : s.end_time;
+            await pool.query(`
+              INSERT INTO timetable_sessions (academic_year_id, group_id, classroom_id, teacher_id, day_of_week, start_time, end_time, notes)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+              academic_year_id,
+              newGroupId,
+              classroomId,
+              teacher_id ? parseInt(teacher_id, 10) : null,
+              s.day_of_week,
+              startVal,
+              endVal,
+              track_type === 'PRESCHOOL' ? 'دوام تحضيري يومي' : (subject_name || 'حصة أسبوعية')
+            ]);
+          }
+        }
+      } catch (ttErr) {
+        console.warn('Auto timetable sync on createGroup non-fatal error:', ttErr.message);
+      }
+    }
+
     return res.status(201).json({
       success: true,
       message: req.t('group_created_success'),
-      groupId: result.insertId,
+      groupId: newGroupId,
       status: 'PENDING'
     });
   } catch (error) {
@@ -173,8 +250,16 @@ export const updateGroup = async (req, res) => {
       schedule = current.schedule,
       is_free,
       monthly_fee,
-      status
+      status,
+      sessions
     } = req.body;
+
+    if (track_type === 'TUTORING' && hasOverlappingSessions(sessions)) {
+      return res.status(400).json({
+        success: false,
+        message: req.t('schedule_overlap_error') || 'لا يمكن برمجة حصتين في نفس اليوم والتوقيت أو متداخلتين'
+      });
+    }
 
     const finalIsFree = is_free !== undefined ? (is_free ? 1 : 0) : current.is_free;
     const finalMonthlyFee = finalIsFree ? 0.00 : (monthly_fee !== undefined ? (parseFloat(monthly_fee) || 0.00) : current.monthly_fee);
@@ -198,6 +283,43 @@ export const updateGroup = async (req, res) => {
       finalStatus,
       id
     ]);
+
+    // If sessions array explicitly provided, sync timetable_sessions
+    if (Array.isArray(sessions)) {
+      try {
+        let classroomId = null;
+        const targetRoom = room !== undefined ? room : current.room;
+        if (targetRoom) {
+          const [rooms] = await pool.query('SELECT id FROM classrooms WHERE name = ?', [targetRoom]);
+          if (rooms.length > 0) classroomId = rooms[0].id;
+        }
+
+        // Delete old sessions for this group and re-insert
+        await pool.query('DELETE FROM timetable_sessions WHERE group_id = ?', [id]);
+
+        for (const s of sessions) {
+          if (s.day_of_week && s.start_time && s.end_time) {
+            const startVal = s.start_time.length === 5 ? `${s.start_time}:00` : s.start_time;
+            const endVal = s.end_time.length === 5 ? `${s.end_time}:00` : s.end_time;
+            await pool.query(`
+              INSERT INTO timetable_sessions (academic_year_id, group_id, classroom_id, teacher_id, day_of_week, start_time, end_time, notes)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+              current.academic_year_id,
+              id,
+              classroomId,
+              finalTeacherId,
+              s.day_of_week,
+              startVal,
+              endVal,
+              track_type === 'PRESCHOOL' ? 'دوام تحضيري يومي' : (subject_name || 'حصة أسبوعية')
+            ]);
+          }
+        }
+      } catch (ttErr) {
+        console.warn('Auto timetable sync on updateGroup non-fatal error:', ttErr.message);
+      }
+    }
 
     return res.json({ success: true, message: req.t('group_updated_success') });
   } catch (error) {

@@ -21,6 +21,7 @@ export const translations = {
     student_not_found: 'الطالب غير موجود',
     student_cannot_delete_active_enrollment: 'لا يمكن حذف الطالب ({name}) لأنه مسجل حالياً في الأفواج النشطة التالية: {groups}. يجب إلغاء تسجيله من الفوج أولاً.',
     student_required_fields: 'يرجى إدخال اسم الطالب الرباعي ورقم هاتف الولي',
+    recalculate_debt_success: 'تمت إعادة حساب وتحديث وضعيات الديون والمستحقات لكافة الطلبة بنجاح',
 
     // Groups
     group_created_success: 'تم إنشاء الفوج بنجاح وهو في حالة الانتظار (En instance)',
@@ -104,6 +105,7 @@ export const translations = {
     student_not_found: 'Student not found',
     student_cannot_delete_active_enrollment: 'Cannot delete student ({name}) because they are actively enrolled in group(s): {groups}. Please unenroll them first.',
     student_required_fields: 'Please enter the full student name and guardian phone number',
+    recalculate_debt_success: 'Student debts and payment statuses recalculated successfully',
 
     // Groups
     group_created_success: 'Group created successfully in pending status (En instance)',
@@ -187,6 +189,7 @@ export const translations = {
     student_not_found: 'Élève introuvable',
     student_cannot_delete_active_enrollment: 'Impossible de supprimer l\'élève ({name}) car il est actuellement inscrit dans le(s) groupe(s) actif(s): {groups}. Veuillez d\'abord le désinscrire du groupe.',
     student_required_fields: 'Veuillez saisir le nom complet de l\'élève et le téléphone du tuteur',
+    recalculate_debt_success: 'Les dettes et statuts financiers de tous les élèves ont été recalculés avec succès',
 
     // Groups
     group_created_success: 'Groupe créé avec succès en attente (En instance)',

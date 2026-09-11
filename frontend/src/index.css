@@ -144,13 +144,44 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Print Styling */
 @media print {
-  .no-print {
+  .no-print,
+  .no-print * {
     display: none !important;
   }
-  body {
-    background-color: #ffffff !important;
+
+  html, body {
+    background: #ffffff !important;
     color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
+
+  @page {
+    size: A4 portrait;
+    margin: 10mm 10mm 10mm 10mm;
+  }
+
+  .print-avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .print-page-break {
+    break-after: page !important;
+    page-break-after: always !important;
+  }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+
+.animate-shake {
+  animation: shake 0.4s ease-in-out;
 }
 
 /* Hero Gradient Banners - Guaranteed high contrast */

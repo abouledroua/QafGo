@@ -439,7 +439,7 @@ export default function ClassroomsTimetablePage() {
           <div>
             <div className="flex items-center gap-2 text-xs font-bold text-primary mb-1">
               <CalendarDays className="w-4 h-4" />
-              <span>{t('student_profile.academic_year_label', { year: selectedYearObj?.label || 'الحالية' })}</span>
+              <span>{t('student_profile.academic_year_label', { year: selectedYearObj?.label || t('academic_years.current_badge', 'الحالية') })}</span>
             </div>
             <h1 className="text-2xl lg:text-3xl font-black text-text-main font-cairo">
               {t('classrooms_timetable.title')}
@@ -620,7 +620,7 @@ export default function ClassroomsTimetablePage() {
                   setFilterTrack('');
                 }}
                 className="p-2 rounded-xl bg-surface hover:bg-surface-hover text-rose-600 text-xs font-bold border border-border shrink-0"
-                title="إعادة ضبط الفلاتر"
+                title={t('common.reset_filters', 'إعادة ضبط الفلاتر')}
               >
                 {t('common.cancel')}
               </button>

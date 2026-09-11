@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { useNotification } from '../context/NotificationContext';
 import { useLanguage } from '../context/LanguageContext';
+import { useSettings } from '../context/SettingsContext';
 import { 
   User, 
   Clock, 
@@ -38,6 +39,18 @@ export default function StudentProfilePage() {
   const navigate = useNavigate();
   const { showNotification } = useNotification();
   const { t, isRtl, dir } = useLanguage();
+  const { settings, fetchSettings } = useSettings();
+
+  useEffect(() => {
+    if (fetchSettings) {
+      fetchSettings();
+    }
+  }, [fetchSettings]);
+
+  const toBool = (val) => val === true || val === 1 || val === '1' || val === 'true';
+  const isQuranEnabled = toBool(settings?.enable_quran_track);
+  const isPreschoolEnabled = toBool(settings?.enable_preschool_track);
+  const isTutoringEnabled = toBool(settings?.enable_tutoring_track);
 
   const [dossier, setDossier] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -55,7 +68,7 @@ export default function StudentProfilePage() {
     full_name: '',
     dob: '',
     gender: 'MALE',
-    academic_level: 'ابتدائي',
+    academic_level: '',
     guardian_name: '',
     guardian_phone: '',
     photo_url: '',
@@ -87,6 +100,43 @@ export default function StudentProfilePage() {
   useEffect(() => {
     fetchDossier();
   }, [fetchDossier]);
+
+  const hasEvaluationsTab = isQuranEnabled;
+
+  useEffect(() => {
+    if (!hasEvaluationsTab && activeTab === 'EVALUATIONS') {
+      setActiveTab('TIMELINE');
+    }
+  }, [hasEvaluationsTab, activeTab]);
+
+  const displayTimeline = useMemo(() => {
+    const timeline = dossier?.timeline;
+    if (!timeline) return [];
+    return timeline.filter(item => {
+      if (item.type === 'TAHFIZ_EVALUATION' && !isQuranEnabled) return false;
+      if (item.type === 'PRESCHOOL_EVALUATION' && !isPreschoolEnabled) return false;
+      if (item.type === 'TUTORING_GRADE' && !isTutoringEnabled) return false;
+      return true;
+    });
+  }, [dossier?.timeline, isQuranEnabled, isPreschoolEnabled, isTutoringEnabled]);
+
+  const enrollmentsCount = dossier?.enrollments?.length || 0;
+  const paymentsCount = dossier?.payments?.length || 0;
+
+  const profileTabs = useMemo(() => {
+    const list = [
+      { id: 'TIMELINE', label: t('student_profile.tab_timeline'), icon: Clock },
+      { id: 'ENROLLMENTS', label: t('student_profile.tab_enrollments', { count: enrollmentsCount }), icon: Layers },
+    ];
+    if (hasEvaluationsTab) {
+      list.push({ id: 'EVALUATIONS', label: t('student_profile.tab_evaluations'), icon: Award });
+    }
+    list.push(
+      { id: 'ATTENDANCE', label: t('student_profile.tab_attendance'), icon: Percent },
+      { id: 'FINANCE', label: t('student_profile.tab_finance', { count: paymentsCount }), icon: Wallet }
+    );
+    return list;
+  }, [hasEvaluationsTab, enrollmentsCount, paymentsCount, t]);
 
   if (loading) {
     return (
@@ -135,7 +185,7 @@ export default function StudentProfilePage() {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      showNotification('حجم الصورة يجب ألا يتجاوز 5 ميغابايت', 'warning');
+      showNotification(t('teachers.photo_size_warning', 'حجم الصورة يجب ألا يتجاوز 5 ميغابايت'), 'warning');
       return;
     }
 
@@ -191,7 +241,7 @@ export default function StudentProfilePage() {
   const handleOpenDelete = () => {
     const activeEnrollments = (enrollments || []).filter(en => en.status === 'ACTIVE');
     if (activeEnrollments.length > 0) {
-      const groupNames = activeEnrollments.map(e => `"${e.group_name}"`).join('، ');
+      const groupNames = activeEnrollments.map(e => `"${e.group_name}"`).join(isRtl ? '، ' : ', ');
       showNotification(t('student_profile.cannot_delete_title') + ' ' + groupNames, 'warning');
       return;
     }
@@ -263,24 +313,24 @@ export default function StudentProfilePage() {
       </div>
 
       {/* Student Profile Header Card */}
-      <div className="p-6 lg:p-8 bg-surface-card border border-border rounded-3xl shadow-sm space-y-6">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+      <div className="p-4 sm:p-6 lg:p-8 bg-surface-card border border-border rounded-2xl sm:rounded-3xl shadow-sm space-y-5 sm:space-y-6">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 sm:gap-6">
           
-          <div className="flex items-start gap-4">
+          <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-start gap-4">
             {student.photo_url ? (
               <img
                 src={student.photo_url}
                 alt={student.full_name}
-                className="w-16 h-16 rounded-2xl object-cover border-2 border-primary shadow-lg shadow-primary/20 flex-shrink-0"
+                className="w-20 h-20 sm:w-16 sm:h-16 rounded-2xl object-cover border-2 border-primary shadow-lg shadow-primary/20 flex-shrink-0"
               />
             ) : (
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-primary to-accent text-white flex items-center justify-center text-2xl font-black font-cairo shadow-lg shadow-primary/20 flex-shrink-0">
+              <div className="w-20 h-20 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-tr from-primary to-accent text-white flex items-center justify-center text-3xl sm:text-2xl font-black font-cairo shadow-lg shadow-primary/20 flex-shrink-0">
                 {student.full_name.charAt(0)}
               </div>
             )}
-            <div className="space-y-1">
-              <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-2xl lg:text-3xl font-black text-text-main font-cairo">
+            <div className="space-y-2 sm:space-y-1">
+              <div className="flex items-center justify-center sm:justify-start gap-2 sm:gap-3 flex-wrap">
+                <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-text-main font-cairo">
                   {student.full_name}
                 </h1>
                 <span className="px-2.5 py-0.5 rounded-md text-xs font-mono font-bold bg-primary/10 text-primary border border-primary/20">
@@ -290,117 +340,93 @@ export default function StudentProfilePage() {
                   {student.academic_level || t('student_profile.general_level')}
                 </span>
               </div>
-              <div className="flex items-center gap-4 text-xs text-text-muted pt-1 flex-wrap">
-                <span>{t('student_profile.dob_label')} <strong className="font-mono">{DateTimeFormatter.formatDate(student.dob, t('student_profile.unspecified'))}</strong></span>
-                <span>•</span>
-                <span>{t('student_profile.guardian_label')} <strong>{student.guardian_name || '-'}</strong></span>
-                <span>•</span>
-                <span className="flex items-center gap-1 font-mono text-text-main">
-                  <Phone className="w-3.5 h-3.5 text-primary" />
-                  {student.guardian_phone}
+              <div className="flex items-center justify-center sm:justify-start gap-2 sm:gap-3 text-xs text-text-muted pt-1 flex-wrap">
+                <span className="bg-surface px-2.5 py-1 rounded-lg border border-border/60">
+                  {t('student_profile.dob_label')} <strong className="font-mono">{DateTimeFormatter.formatDate(student.dob, t('student_profile.unspecified'))}</strong>
                 </span>
+                <span className="bg-surface px-2.5 py-1 rounded-lg border border-border/60">
+                  {t('student_profile.guardian_label')} <strong>{student.guardian_name || '-'}</strong>
+                </span>
+                {student.guardian_phone && (
+                  <a 
+                    href={`tel:${student.guardian_phone}`}
+                    className="inline-flex items-center gap-1.5 font-mono text-primary font-bold bg-primary/10 px-2.5 py-1 rounded-lg border border-primary/20 hover:bg-primary hover:text-white transition-colors"
+                  >
+                    <Phone className="w-3.5 h-3.5" />
+                    <span>{student.guardian_phone}</span>
+                  </a>
+                )}
               </div>
             </div>
           </div>
 
           {/* Quick Stats Highlights */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="p-3 bg-surface rounded-2xl text-center border border-border">
-              <span className="text-[11px] text-text-muted block">{t('student_profile.quick_stats_hizb')}</span>
-              <span className="text-xl font-black text-emerald-600">
-                {t('student_profile.hizb_count', { count: summary.maxMemorizedHizb })}
-              </span>
-            </div>
+          <div className={`grid grid-cols-2 ${isQuranEnabled ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-2.5 sm:gap-3 w-full lg:w-auto`}>
+            {isQuranEnabled && (
+              <div className="p-3 bg-surface rounded-2xl text-center border border-border">
+                <span className="text-[11px] text-text-muted block">{t('student_profile.quick_stats_hizb')}</span>
+                <span className="text-xl font-black text-emerald-600 font-cairo">
+                  {t('student_profile.hizb_count', { count: summary.maxMemorizedHizb })}
+                </span>
+              </div>
+            )}
             <div className="p-3 bg-surface rounded-2xl text-center border border-border">
               <span className="text-[11px] text-text-muted block">{t('student_profile.quick_stats_sessions')}</span>
-              <span className="text-xl font-black text-primary">
-                {summary.totalTahfizSessions + summary.totalTutoringExams + summary.totalPreschoolEvaluations}
+              <span className="text-xl font-black text-primary font-cairo">
+                {(isQuranEnabled ? summary.totalTahfizSessions : 0) + summary.totalTutoringExams + summary.totalPreschoolEvaluations}
               </span>
             </div>
             <div className="p-3 bg-surface rounded-2xl text-center border border-border">
               <span className="text-[11px] text-text-muted block">{t('student_profile.quick_stats_transfers')}</span>
-              <span className="text-xl font-black text-amber-600">{summary.totalTransfers}</span>
+              <span className="text-xl font-black text-amber-600 font-cairo">{summary.totalTransfers}</span>
             </div>
-            <div className="p-3 bg-surface rounded-2xl text-center border border-border">
-              <span className="text-[11px] text-text-muted block">{t('student_profile.quick_stats_fees')}</span>
-              <span className="text-xl font-black text-purple-600">{summary.totalPaid.toLocaleString()} دج</span>
+            <div className={`p-3 bg-surface rounded-2xl text-center border border-border ${!isQuranEnabled ? 'col-span-2 sm:col-span-1' : ''}`}>
+              <span className="text-[11px] text-text-muted block">
+                {summary.currentDebt > 0 ? t('student_profile.unpaid_dues_label') : t('student_profile.quick_stats_fees')}
+              </span>
+              <span className={`text-xl font-black font-cairo ${summary.currentDebt > 0 ? 'text-rose-600' : 'text-purple-600'}`}>
+                {summary.currentDebt > 0 ? `${summary.currentDebt.toLocaleString()} ${t('common.currency')}` : `${summary.totalPaid.toLocaleString()} ${t('common.currency')}`}
+              </span>
+              {summary.currentDebt > 0 && (
+                <span className="text-[10px] text-rose-500 font-bold block mt-0.5">
+                  {t('student_profile.unpaid_status_badge')} ({summary.unpaidEnrollments?.[0]?.month_ref})
+                </span>
+              )}
             </div>
           </div>
 
         </div>
       </div>
 
-      {/* Profile Tabs Navigation */}
-      <div className="flex items-center gap-2 border-b border-border overflow-x-auto pb-1">
-        <button
-          type="button"
-          onClick={() => setActiveTab('TIMELINE')}
-          className={`flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 whitespace-nowrap transition-all ${
-            activeTab === 'TIMELINE'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-text-muted hover:text-text-main'
-          }`}
-        >
-          <Clock className="w-4 h-4" />
-          <span>{t('student_profile.tab_timeline')}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('ENROLLMENTS')}
-          className={`flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 whitespace-nowrap transition-all ${
-            activeTab === 'ENROLLMENTS'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-text-muted hover:text-text-main'
-          }`}
-        >
-          <Layers className="w-4 h-4" />
-          <span>{t('student_profile.tab_enrollments', { count: enrollments.length })}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('EVALUATIONS')}
-          className={`flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 whitespace-nowrap transition-all ${
-            activeTab === 'EVALUATIONS'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-text-muted hover:text-text-main'
-          }`}
-        >
-          <Award className="w-4 h-4" />
-          <span>{t('student_profile.tab_evaluations')}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('ATTENDANCE')}
-          className={`flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 whitespace-nowrap transition-all ${
-            activeTab === 'ATTENDANCE'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-text-muted hover:text-text-main'
-          }`}
-        >
-          <Percent className="w-4 h-4" />
-          <span>{t('student_profile.tab_attendance')}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('FINANCE')}
-          className={`flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 whitespace-nowrap transition-all ${
-            activeTab === 'FINANCE'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-text-muted hover:text-text-main'
-          }`}
-        >
-          <Wallet className="w-4 h-4" />
-          <span>{t('student_profile.tab_finance', { count: payments.length })}</span>
-        </button>
+      {/* Profile Sections / Tabs Navigation: 2-column grid on mobile, full grid on desktop */}
+      <div className="p-1.5 bg-surface border border-border rounded-2xl sm:rounded-3xl shadow-sm">
+        <div className={`grid ${profileTabs.length === 5 ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5' : 'grid-cols-2 sm:grid-cols-4'} gap-1.5 sm:gap-2`}>
+          {profileTabs.map((tab, idx) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            const isFullWidthMobile = profileTabs.length % 2 === 1 && idx === profileTabs.length - 1;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl sm:rounded-2xl text-xs sm:text-sm font-bold transition-all select-none ${
+                  isActive
+                    ? 'bg-primary text-white shadow-md shadow-primary/25 font-black'
+                    : 'text-text-muted hover:text-text-main hover:bg-surface-card bg-transparent'
+                } ${isFullWidthMobile ? 'col-span-2 sm:col-span-1' : ''}`}
+              >
+                <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-primary'}`} />
+                <span className="truncate">{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Tab 1: Interactive Multi-Year Lifetime Timeline */}
       {activeTab === 'TIMELINE' && (
-        <div className="bg-surface-card border border-border rounded-3xl p-6 lg:p-8 space-y-6 shadow-sm">
+        <div className="bg-surface-card border border-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 lg:p-8 space-y-6 shadow-sm">
           <div className="flex items-center justify-between border-b border-border pb-4">
             <div>
               <h3 className="text-xl font-bold text-text-main">{t('student_profile.timeline_title')}</h3>
@@ -409,15 +435,15 @@ export default function StudentProfilePage() {
               </p>
             </div>
             <span className="px-3 py-1 rounded-full text-xs font-bold bg-primary/10 text-primary border border-primary/20">
-              {t('student_profile.events_count', { count: timeline.length })}
+              {t('student_profile.events_count', { count: displayTimeline.length })}
             </span>
           </div>
 
-          <div className={`relative ${isRtl ? 'pr-6 border-r-2 mr-3' : 'pl-6 border-l-2 ml-3'} border-primary/30 space-y-8`}>
-            {timeline.length === 0 ? (
+          <div className={`relative ${isRtl ? 'pr-5 sm:pr-6 border-r-2 mr-2 sm:mr-3' : 'pl-5 sm:pl-6 border-l-2 ml-2 sm:ml-3'} border-primary/30 space-y-6 sm:space-y-8`}>
+            {displayTimeline.length === 0 ? (
               <p className="text-sm text-text-muted py-6">{t('student_profile.no_events')}</p>
             ) : (
-              timeline.map((item) => {
+              displayTimeline.map((item) => {
                 const isEnrollment = item.type === 'ENROLLMENT';
                 const isTransferOut = item.type === 'TRANSFER_OUT';
                 const isOfficialTransfer = item.type === 'TRANSFER_EVENT';
@@ -429,7 +455,7 @@ export default function StudentProfilePage() {
                   <div key={item.id} className="relative group">
                     
                     {/* Timeline Node Dot */}
-                    <div className={`absolute ${isRtl ? '-right-[31px]' : '-left-[31px]'} top-1.5 w-4 h-4 rounded-full border-2 border-surface-card ${
+                    <div className={`absolute ${isRtl ? '-right-[27px] sm:-right-[31px]' : '-left-[27px] sm:-left-[31px]'} top-1.5 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full border-2 border-surface-card ${
                       isOfficialTransfer || isTransferOut
                         ? 'bg-amber-500 ring-4 ring-amber-500/20'
                         : isTahfiz
@@ -442,7 +468,7 @@ export default function StudentProfilePage() {
                     }`}></div>
 
                     {/* Timeline Event Card */}
-                    <div className="p-4 bg-surface rounded-2xl border border-border/80 hover:border-primary/40 transition-all shadow-sm">
+                    <div className="p-3.5 sm:p-4 bg-surface rounded-2xl border border-border/80 hover:border-primary/40 transition-all shadow-sm">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2">
                           <span className={`px-2.5 py-0.5 rounded text-[11px] font-bold ${
@@ -573,17 +599,19 @@ export default function StudentProfilePage() {
       )}
 
       {/* Tab 3: Detailed Evaluations (Tahfiz, PreSchool, Tutoring) */}
-      {activeTab === 'EVALUATIONS' && (
-        <div className="space-y-6">
+      {hasEvaluationsTab && activeTab === 'EVALUATIONS' && (
+        <div className="space-y-5 sm:space-y-6">
           
           {/* Quranic Tahfiz progression */}
-          {tahfizLogs.length > 0 && (
-            <div className="bg-surface-card border border-border rounded-3xl p-6 shadow-sm space-y-4">
+          {isQuranEnabled && tahfizLogs.length > 0 && (
+            <div className="bg-surface-card border border-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-sm space-y-4">
               <div className="flex items-center gap-2 text-emerald-600">
                 <BookOpen className="w-5 h-5" />
-                <h3 className="text-lg font-bold text-text-main">{t('student_profile.tahfiz_title')}</h3>
+                <h3 className="text-base sm:text-lg font-bold text-text-main">{t('student_profile.tahfiz_title')}</h3>
               </div>
-              <div className="overflow-x-auto">
+
+              {/* Desktop Table View */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-start text-xs">
                   <thead className="bg-surface text-text-muted font-bold">
                     <tr>
@@ -611,7 +639,7 @@ export default function StudentProfilePage() {
                         <td className="p-3">
                           {t('student_profile.range_from_to', { from: tItem.surah_from, to: tItem.surah_to })}
                         </td>
-                        <td className="p-3 font-mono">{tItem.hizb_from || '-'} إلى {tItem.hizb_to || '-'}</td>
+                        <td className="p-3 font-mono">{tItem.hizb_from || '-'} {t('common.to', 'إلى')} {tItem.hizb_to || '-'}</td>
                         <td className="p-3 font-bold text-emerald-600">{tItem.grade}</td>
                         <td className="p-3 text-text-muted">{tItem.notes || '-'}</td>
                       </tr>
@@ -619,17 +647,48 @@ export default function StudentProfilePage() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Mobile Card List View */}
+              <div className="md:hidden space-y-3">
+                {tahfizLogs.map((tItem) => (
+                  <div key={tItem.id} className="p-4 bg-surface rounded-2xl border border-border space-y-2.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-text-main text-sm">{tItem.group_name}</span>
+                      <span className="font-mono text-text-muted text-[11px]">{tItem.date?.split('T')[0]}</span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        tItem.type === 'MEMORIZATION' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-blue-500/10 text-blue-600'
+                      }`}>
+                        {tItem.type === 'MEMORIZATION' ? t('student_profile.type_new_memo') : t('student_profile.type_revision')}
+                      </span>
+                      <span className="text-text-muted">{t('student_profile.range_from_to', { from: tItem.surah_from, to: tItem.surah_to })}</span>
+                    </div>
+                    <div className="flex items-center justify-between pt-2 border-t border-border/60">
+                      <span className="text-text-muted font-mono">{t('student_profile.table_ahzab')}: {tItem.hizb_from || '-'} {t('common.to', 'إلى')} {tItem.hizb_to || '-'}</span>
+                      <span className="font-bold text-emerald-600 text-sm font-mono">{t('student_profile.table_grade')}: {tItem.grade}</span>
+                    </div>
+                    {tItem.notes && (
+                      <p className="text-[11px] text-text-muted bg-surface-card p-2 rounded-xl border border-border/60">
+                        {tItem.notes}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
           {/* PreSchool logs */}
           {preschoolLogs.length > 0 && (
-            <div className="bg-surface-card border border-border rounded-3xl p-6 shadow-sm space-y-4">
+            <div className="bg-surface-card border border-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-sm space-y-4">
               <div className="flex items-center gap-2 text-purple-600">
                 <Baby className="w-5 h-5" />
-                <h3 className="text-lg font-bold text-text-main">{t('student_profile.preschool_title')}</h3>
+                <h3 className="text-base sm:text-lg font-bold text-text-main">{t('student_profile.preschool_title')}</h3>
               </div>
-              <div className="overflow-x-auto">
+
+              {/* Desktop Table View */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-start text-xs">
                   <thead className="bg-surface text-text-muted font-bold">
                     <tr>
@@ -653,17 +712,46 @@ export default function StudentProfilePage() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Mobile Card List View */}
+              <div className="md:hidden space-y-3">
+                {preschoolLogs.map((p) => (
+                  <div key={p.id} className="p-4 bg-surface rounded-2xl border border-border space-y-2.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-text-main text-sm">{p.skill_category}</span>
+                      <span className="font-mono text-text-muted text-[11px]">{p.date?.split('T')[0]}</span>
+                    </div>
+                    {p.activity_title && (
+                      <div className="text-text-muted">
+                        <span className="text-[10px] block">{t('student_profile.table_activity')}</span>
+                        <span className="font-bold text-text-main">{p.activity_title}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between pt-2 border-t border-border/60">
+                      <span className="text-text-muted">{t('student_profile.table_rating')}</span>
+                      <span className="font-bold text-purple-600 text-sm font-mono">{p.score_rating}</span>
+                    </div>
+                    {p.behavior_note && (
+                      <p className="text-[11px] text-text-muted bg-surface-card p-2 rounded-xl border border-border/60">
+                        {p.behavior_note}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
           {/* Tutoring Grades */}
           {tutoringGrades.length > 0 && (
-            <div className="bg-surface-card border border-border rounded-3xl p-6 shadow-sm space-y-4">
+            <div className="bg-surface-card border border-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-sm space-y-4">
               <div className="flex items-center gap-2 text-blue-600">
                 <GraduationCap className="w-5 h-5" />
-                <h3 className="text-lg font-bold text-text-main">{t('student_profile.tutoring_title')}</h3>
+                <h3 className="text-base sm:text-lg font-bold text-text-main">{t('student_profile.tutoring_title')}</h3>
               </div>
-              <div className="overflow-x-auto">
+
+              {/* Desktop Table View */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-start text-xs">
                   <thead className="bg-surface text-text-muted font-bold">
                     <tr>
@@ -689,6 +777,31 @@ export default function StudentProfilePage() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Mobile Card List View */}
+              <div className="md:hidden space-y-3">
+                {tutoringGrades.map((g) => (
+                  <div key={g.id} className="p-4 bg-surface rounded-2xl border border-border space-y-2.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-text-main text-sm">{g.group_name} ({g.subject_name || '-'})</span>
+                      <span className="font-mono text-text-muted text-[11px]">{g.exam_date?.split('T')[0]}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-text-muted block">{t('student_profile.table_exam_title')}</span>
+                      <span className="font-bold text-text-main">{g.exam_title}</span>
+                    </div>
+                    <div className="flex items-center justify-between pt-2 border-t border-border/60">
+                      <span className="text-text-muted">{t('student_profile.table_score')}</span>
+                      <span className="font-mono font-bold text-blue-600 text-sm">{g.score} / {g.max_score}</span>
+                    </div>
+                    {g.teacher_notes && (
+                      <p className="text-[11px] text-text-muted bg-surface-card p-2 rounded-xl border border-border/60">
+                        {g.teacher_notes}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -697,7 +810,7 @@ export default function StudentProfilePage() {
 
       {/* Tab 4: Attendance Stats per Academic Year */}
       {activeTab === 'ATTENDANCE' && (
-        <div className="bg-surface-card border border-border rounded-3xl p-6 lg:p-8 space-y-6 shadow-sm">
+        <div className="bg-surface-card border border-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 lg:p-8 space-y-6 shadow-sm">
           <div>
             <h3 className="text-xl font-bold text-text-main">{t('student_profile.attendance_title')}</h3>
             <p className="text-xs text-text-muted mt-0.5">
@@ -705,9 +818,9 @@ export default function StudentProfilePage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
             {yearlyAttendanceRates.map((rate, idx) => (
-              <div key={idx} className="p-5 bg-surface rounded-2xl border border-border space-y-4">
+              <div key={idx} className="p-4 sm:p-5 bg-surface rounded-2xl border border-border space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-bold text-text-main">
                     {t('student_profile.academic_year_label', { year: rate.yearLabel })}
@@ -751,20 +864,44 @@ export default function StudentProfilePage() {
 
       {/* Tab 5: Complete Financial Statement */}
       {activeTab === 'FINANCE' && (
-        <div className="bg-surface-card border border-border rounded-3xl p-6 lg:p-8 space-y-6 shadow-sm">
-          <div className="flex items-center justify-between border-b border-border pb-4">
+        <div className="bg-surface-card border border-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 lg:p-8 space-y-6 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-4">
             <div>
               <h3 className="text-xl font-bold text-text-main">{t('student_profile.finance_title')}</h3>
               <p className="text-xs text-text-muted mt-0.5">
                 {t('student_profile.finance_subtitle')}
               </p>
             </div>
-            <div className="text-xs font-bold text-emerald-600 bg-emerald-500/10 px-3 py-1 rounded-full">
+            <div className="text-xs font-bold text-emerald-600 bg-emerald-500/10 px-3 py-1.5 rounded-full self-start sm:self-auto border border-emerald-500/20">
               {t('student_profile.finance_total_paid', { total: summary.totalPaid.toLocaleString() })}
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          {/* Active Debt Alert Banner if any unpaid dues */}
+          {summary.currentDebt > 0 && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl">
+              <div className="flex items-center gap-3">
+                <AlertCircle className="w-5 h-5 text-rose-600 flex-shrink-0" />
+                <div>
+                  <h4 className="text-sm font-bold text-rose-800 dark:text-rose-300">
+                    {t('student_profile.unpaid_banner_title')}: <span className="font-mono font-extrabold">{summary.currentDebt.toLocaleString()} {t('common.currency')}</span>
+                  </h4>
+                  <p className="text-xs text-rose-700/80 dark:text-rose-400 mt-0.5">
+                    {summary.unpaidEnrollments?.map(u => `${u.group_name} (${u.month_ref})`).join(isRtl ? '، ' : ', ')}
+                  </p>
+                </div>
+              </div>
+              <Link
+                to="/finance"
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm transition-colors text-center shrink-0"
+              >
+                {t('student_profile.go_to_finance_btn')}
+              </Link>
+            </div>
+          )}
+
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-start text-xs">
               <thead className="bg-surface text-text-muted font-bold">
                 <tr>
@@ -795,7 +932,7 @@ export default function StudentProfilePage() {
                         <td className="p-3 font-bold">{p.month_ref}</td>
                         <td className="p-3">{p.group_name}</td>
                         <td className="p-3 font-mono font-bold">
-                          {isExempt ? '0.00 دج' : `${parseFloat(p.amount).toLocaleString()} دج`}
+                          {isExempt ? `0.00 ${t('common.currency')}` : `${parseFloat(p.amount).toLocaleString()} ${t('common.currency')}`}
                         </td>
                         <td className="p-3">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -828,6 +965,64 @@ export default function StudentProfilePage() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile Card List View */}
+          <div className="md:hidden space-y-3">
+            {payments.length === 0 ? (
+              <p className="p-6 text-center text-text-muted text-xs">{t('student_profile.no_payments')}</p>
+            ) : (
+              payments.map((p) => {
+                const isExempt = p.payment_status === 'EXEMPTED';
+                return (
+                  <div key={p.id} className="p-4 bg-surface rounded-2xl border border-border space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-xs text-primary">{p.receipt_no}</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          isExempt ? 'bg-emerald-500/15 text-emerald-700' : 'bg-blue-500/15 text-blue-700'
+                        }`}>
+                          {isExempt ? t('student_profile.status_exempt') : t('student_profile.status_paid')}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedPaymentForReceipt({
+                            ...p,
+                            student_name: student.full_name,
+                            reg_no: student.reg_no
+                          });
+                          setReceiptModalOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface-card hover:bg-primary hover:text-white text-text-main border border-border text-xs font-bold transition-colors"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>{t('student_profile.preview_receipt')}</span>
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <span className="text-text-muted block text-[10px]">{t('student_profile.table_group')}</span>
+                        <span className="font-bold text-text-main">{p.group_name}</span>
+                      </div>
+                      <div>
+                        <span className="text-text-muted block text-[10px]">{t('student_profile.table_month')}</span>
+                        <span className="font-bold font-mono text-text-main">{p.month_ref}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-border/60 text-xs">
+                      <span className="font-mono text-text-muted">{DateTimeFormatter.formatDate(p.payment_date)}</span>
+                      <span className="font-mono font-bold text-sm text-text-main">
+                        {isExempt ? `0.00 ${t('common.currency')}` : `${parseFloat(p.amount).toLocaleString()} ${t('common.currency')}`}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       )}

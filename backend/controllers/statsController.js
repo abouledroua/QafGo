@@ -2,15 +2,44 @@ import pool from '../config/db.js';
 
 export const getDashboardStats = async (req, res) => {
   try {
-    const { academic_year_id } = req.query;
+    let { academic_year_id } = req.query;
+
+    // Fallback to active or latest academic year if not provided
     if (!academic_year_id) {
-      return res.status(400).json({ success: false, message: req.t('bad_request') });
+      const [currentYear] = await pool.query(`SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1`);
+      if (currentYear.length > 0) {
+        academic_year_id = currentYear[0].id;
+      } else {
+        const [latestYear] = await pool.query(`SELECT id FROM academic_years ORDER BY id DESC LIMIT 1`);
+        if (latestYear.length > 0) {
+          academic_year_id = latestYear[0].id;
+        }
+      }
+    }
+
+    if (!academic_year_id) {
+      return res.json({
+        success: true,
+        data: {
+          summary: { total_students: 0, total_groups: 0, total_teachers: 0, total_transfers: 0 },
+          trackBreakdown: [],
+          recentTahfiz: [],
+          recentTransfers: [],
+          finances: { total_revenue: 0, total_exemptions: 0 }
+        }
+      });
     }
 
     // 1. Total counts
     const [totalStats] = await pool.query(`
       SELECT 
-        (SELECT COUNT(DISTINCT e.student_id) FROM enrollments e WHERE e.academic_year_id = ? AND e.status = 'ACTIVE') AS total_students,
+        (
+          SELECT COUNT(DISTINCT s.id) 
+          FROM students s
+          LEFT JOIN enrollments e ON s.id = e.student_id
+          WHERE (e.academic_year_id = ? AND e.status = 'ACTIVE')
+             OR (e.academic_year_id IS NULL)
+        ) AS total_students,
         (SELECT COUNT(*) FROM groups g WHERE g.academic_year_id = ?) AS total_groups,
         (SELECT COUNT(*) FROM teachers) AS total_teachers,
         (SELECT COUNT(*) FROM transfers_log tl WHERE tl.academic_year_id = ?) AS total_transfers

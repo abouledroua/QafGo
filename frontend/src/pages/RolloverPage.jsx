@@ -301,7 +301,7 @@ export default function RolloverPage() {
                 </label>
                 <input
                   type="text"
-                  placeholder="مثال: 2026/2027"
+                  placeholder={t('rollover.year_label_placeholder', 'مثال: 2026/2027')}
                   value={newYearLabel}
                   onChange={(e) => setNewYearLabel(e.target.value)}
                   className="w-full p-2.5 bg-surface border border-border rounded-xl text-sm font-bold text-text-main"

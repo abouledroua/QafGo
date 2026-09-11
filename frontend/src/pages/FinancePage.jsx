@@ -31,8 +31,9 @@ export default function FinancePage() {
   const [unpaidStudents, setUnpaidStudents] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Month reference filter (e.g. 2025-10)
-  const [selectedMonth, setSelectedMonth] = useState('2025-10');
+  // Month reference filter defaults to current month (e.g. YYYY-MM)
+  const currentMonthStr = new Date().toISOString().slice(0, 7);
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthStr);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState(''); // 'PAID' | 'EXEMPTED' | ''
 
@@ -45,7 +46,7 @@ export default function FinancePage() {
     group_id: '',
     amount: '',
     payment_date: new Date().toISOString().split('T')[0],
-    month_ref: '2025-10',
+    month_ref: currentMonthStr,
     payment_status: 'PAID',
     notes: ''
   });
@@ -178,7 +179,7 @@ export default function FinancePage() {
             </div>
           </div>
           <div className="text-2xl font-black text-text-main font-cairo">
-            {parseFloat(overview?.financial?.total_revenue || 0).toLocaleString()} <span className="text-xs font-bold text-text-muted">دج</span>
+            {parseFloat(overview?.financial?.total_revenue || 0).toLocaleString()} <span className="text-xs font-bold text-text-muted">{t('common.currency')}</span>
           </div>
           <p className="text-xs text-text-muted mt-1">
             {t('finance.kpi_receipts')}: {overview?.financial?.total_paid_receipts || 0}
@@ -315,7 +316,7 @@ export default function FinancePage() {
                           <td className="p-4 font-mono">{p.month_ref}</td>
                           <td className="p-4 text-text-muted">{p.group_name}</td>
                           <td className="p-4 font-mono font-bold text-sm">
-                            {isExempt ? '0.00 دج' : `${parseFloat(p.amount).toLocaleString()} دج`}
+                            {isExempt ? `0.00 ${t('common.currency')}` : `${parseFloat(p.amount).toLocaleString()} ${t('common.currency')}`}
                           </td>
                           <td className="p-4">
                             <span className={`inline-flex px-2.5 py-0.5 rounded text-[11px] font-bold ${
@@ -406,14 +407,14 @@ export default function FinancePage() {
                         <td className="p-4 font-mono font-bold text-primary">{item.reg_no}</td>
                         <td className="p-4 font-bold text-text-main">{item.student_name}</td>
                         <td className="p-4 text-text-muted">{item.group_name}</td>
-                        <td className="p-4 font-mono">{item.original_fee} دج</td>
+                        <td className="p-4 font-mono">{item.original_fee} {t('common.currency')}</td>
                         <td className="p-4">
-                          {item.discount_type === 'PERCENTAGE' && <span className="text-primary font-bold">%{item.discount_value}</span>}
-                          {item.discount_type === 'FIXED_AMOUNT' && <span className="text-primary font-bold">{item.discount_value} دج</span>}
+                          {item.discount_type === 'PERCENTAGE' && <span className="text-primary font-bold">{isRtl ? `%${item.discount_value}` : `${item.discount_value}%`}</span>}
+                          {item.discount_type === 'FIXED_AMOUNT' && <span className="text-primary font-bold">{item.discount_value} {t('common.currency')}</span>}
                           {item.discount_type === 'NONE' && <span className="text-text-muted">-</span>}
                         </td>
                         <td className="p-4 font-mono font-bold text-rose-600 text-sm">
-                          {item.expected_amount} دج
+                          {item.expected_amount} {t('common.currency')}
                         </td>
                         <td className="p-4 text-text-muted">
                           <div>{item.guardian_name || '-'}</div>

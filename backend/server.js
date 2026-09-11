@@ -29,6 +29,7 @@ import statsRoutes from './routes/statsRoutes.js';
 import settingsRoutes from './routes/settingsRoutes.js';
 import classroomRoutes from './routes/classroomRoutes.js';
 import timetableRoutes from './routes/timetableRoutes.js';
+import userRoutes from './routes/userRoutes.js';
 
 import i18nMiddleware from './middleware/i18nMiddleware.js';
 import { ensureDefaultSettingsRow } from './controllers/settingsController.js';
@@ -68,6 +69,7 @@ app.use('/api/stats', statsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/classrooms', classroomRoutes);
 app.use('/api/timetable', timetableRoutes);
+app.use('/api/users', userRoutes);
 
 // Error Handler
 app.use((err, req, res, next) => {

@@ -186,7 +186,7 @@ export default function TeachersPage() {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      showNotification('حجم الصورة يجب ألا يتجاوز 5 ميغابايت', 'warning');
+      showNotification(t('teachers.photo_size_warning', 'حجم الصورة يجب ألا يتجاوز 5 ميغابايت'), 'warning');
       return;
     }
 
@@ -486,7 +486,7 @@ export default function TeachersPage() {
                         />
                       ) : (
                         <div className="rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 text-primary border border-primary/25 flex items-center justify-center font-black text-lg shadow-sm flex-shrink-0" style={{ width: '3.25rem', height: '3.25rem' }}>
-                          {teacher.full_name?.charAt(0) || 'م'}
+                          {teacher.full_name?.charAt(0) || t('teachers.avatar_fallback', 'م')}
                         </div>
                       )}
                       <div>
@@ -649,7 +649,7 @@ export default function TeachersPage() {
                     <>
                       <img
                         src={photoPreview}
-                        alt="معاينة"
+                        alt={t('common.preview', 'معاينة')}
                         className="w-full h-full object-cover"
                       />
                       <button
@@ -937,7 +937,7 @@ export default function TeachersPage() {
                   />
                 ) : (
                   <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 text-primary border border-primary/25 flex items-center justify-center font-black text-xl shadow-sm">
-                    {selectedTeacherForSchedule.full_name?.charAt(0) || 'م'}
+                    {selectedTeacherForSchedule.full_name?.charAt(0) || t('teachers.avatar_fallback', 'م')}
                   </div>
                 )}
                 <div>
@@ -947,7 +947,7 @@ export default function TeachersPage() {
                       {t('teachers.teacher_schedule_title')}
                     </span>
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-surface border border-border text-text-muted">
-                      {selectedYearObj?.label || 'الحالية'}
+                      {selectedYearObj?.label || t('academic_years.current_badge', 'الحالية')}
                     </span>
                   </div>
                   <h3 className="text-lg font-black text-text-main mt-0.5">

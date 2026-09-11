@@ -15,3 +15,37 @@ export const authenticate = (req, res, next) => {
     return res.status(401).json({ success: false, message: 'جلسة العمل منتهية الصلاحية أو غير صالحة' });
   }
 };
+
+export const requireRole = (...allowedRoles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: 'غير مصرح: يرجى تسجيل الدخول أولاً' });
+    }
+    if (req.user.role === 'ADMIN' || allowedRoles.includes(req.user.role)) {
+      return next();
+    }
+    return res.status(403).json({
+      success: false,
+      message: 'ليس لديك صلاحية كافية لتنفيذ هذا الإجراء'
+    });
+  };
+};
+
+export const requirePermission = (permissionKey) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: 'غير مصرح: يرجى تسجيل الدخول أولاً' });
+    }
+    if (req.user.role === 'ADMIN') {
+      return next();
+    }
+    const perms = Array.isArray(req.user.permissions) ? req.user.permissions : [];
+    if (perms.includes(permissionKey)) {
+      return next();
+    }
+    return res.status(403).json({
+      success: false,
+      message: `ليس لديك صلاحية الوصول إلى قسم: ${permissionKey}`
+    });
+  };
+};

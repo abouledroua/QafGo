@@ -29,7 +29,13 @@ api.interceptors.response.use(
         window.dispatchEvent(new CustomEvent('auth:unauthorized'));
       }
     }
-    const message = error.response?.data?.message || 'حدث خطأ في الاتصال بالخادم';
+    const currentLang = localStorage.getItem('qafgo_lang') || 'ar';
+    const fallbackMessage = currentLang === 'fr'
+      ? 'Une erreur de connexion au serveur est survenue'
+      : currentLang === 'en'
+        ? 'A server connection error occurred'
+        : 'حدث خطأ في الاتصال بالخادم';
+    const message = error.response?.data?.message || fallbackMessage;
     return Promise.reject(new Error(message));
   }
 );

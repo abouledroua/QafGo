@@ -137,7 +137,7 @@ export default function LoginPage() {
                             className="w-3.5 h-3.5 rounded-full border border-black/10 shadow-inner flex-shrink-0"
                             style={{ backgroundColor: theme.color }}
                           />
-                          <span>{theme.name}</span>
+                          <span>{t(`theme.${theme.id.replace(/-/g, '_')}`, theme.name)}</span>
                         </div>
                         {isSelected && <Check className="w-3.5 h-3.5 text-primary" />}
                       </button>
@@ -267,7 +267,7 @@ export default function LoginPage() {
           <div className="relative my-6 flex items-center justify-center">
             <div className="border-t border-border w-full" />
             <span className="bg-surface-card px-3 text-[11px] font-bold text-text-muted uppercase absolute">
-              أو
+              {t('common.or', 'أو')}
             </span>
           </div>
 

@@ -40,6 +40,7 @@ export function LanguageProvider({ children }) {
   return (
     <LanguageContext.Provider value={{
       lang,
+      currentLanguage: lang,
       setLanguage,
       t,
       dir,

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { NavLink } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -25,7 +25,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 
 export default function Sidebar() {
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { selectedYearObj } = useAcademicYear();
   const { settings } = useSettings();
@@ -44,42 +44,58 @@ export default function Sidebar() {
     navigate('/');
   };
 
-  const navSections = [
+  const navSections = useMemo(() => [
     {
       id: 'dashboard',
       items: [
-        { to: '/', label: t('sidebar.dashboard'), icon: LayoutDashboard, exact: true },
+        { to: '/', label: t('sidebar.dashboard'), icon: LayoutDashboard, exact: true, perm: 'dashboard' },
       ]
     },
     {
       id: 'students',
       items: [
-        { to: '/students', label: t('sidebar.students'), icon: Users },
-        { to: '/transfers', label: t('sidebar.transfers'), icon: ArrowLeftRight },
+        { to: '/students', label: t('sidebar.students'), icon: Users, perm: 'students' },
+        { to: '/transfers', label: t('sidebar.transfers'), icon: ArrowLeftRight, perm: 'transfers' },
       ]
     },
     {
       id: 'academic',
       items: [
-        { to: '/tracks', label: t('sidebar.groups_tracks'), icon: Layers },
-        { to: '/timetable', label: t('sidebar.classrooms_timetable'), icon: CalendarDays },
-        { to: '/teachers', label: t('sidebar.teachers'), icon: GraduationCap },
+        { to: '/tracks', label: t('sidebar.groups_tracks'), icon: Layers, perm: 'tracks' },
+        { to: '/timetable', label: t('sidebar.classrooms_timetable'), icon: CalendarDays, perm: 'timetable' },
+        { to: '/teachers', label: t('sidebar.teachers'), icon: GraduationCap, perm: 'teachers' },
       ]
     },
     {
       id: 'finance',
       items: [
-        { to: '/finance', label: t('sidebar.finance'), icon: Wallet },
+        { to: '/finance', label: t('sidebar.finance'), icon: Wallet, perm: 'finance' },
       ]
     },
     {
       id: 'system',
       items: [
-        { to: '/rollover', label: t('sidebar.rollover'), icon: Sparkles },
-        { to: '/settings', label: t('sidebar.settings'), icon: Settings },
+        { to: '/rollover', label: t('sidebar.rollover'), icon: Sparkles, perm: 'rollover' },
+        { to: '/settings', label: t('sidebar.settings'), icon: Settings, perm: 'settings' },
       ]
     }
-  ];
+  ], [t]);
+
+  const visibleNavSections = useMemo(() => {
+    if (!user) return [];
+    if (user.role === 'ADMIN') return navSections;
+    const perms = Array.isArray(user.permissions) ? user.permissions : [];
+    return navSections
+      .map(section => ({
+        ...section,
+        items: section.items.filter(item => {
+          if (!item.perm) return true;
+          if (item.perm === 'settings' && perms.includes('users')) return true;
+          return perms.includes(item.perm);
+        })
+      }))
+      .filter(section => section.items.length > 0);
+  }, [navSections, user]);
 
   const handleLinkClick = () => {
     if (isMobile) {
@@ -102,7 +118,7 @@ export default function Sidebar() {
 
         {/* Sliding Off-Canvas Drawer */}
         <aside
-          className={`fixed inset-y-0 ${isRtl ? 'right-0 border-l' : 'left-0 border-r'} z-50 w-72 bg-surface-card border-border shadow-2xl p-5 flex flex-col justify-between transition-transform duration-300 ease-in-out ${
+          className={`no-print fixed inset-y-0 ${isRtl ? 'right-0 border-l' : 'left-0 border-r'} z-50 w-72 bg-surface-card border-border shadow-2xl p-5 flex flex-col justify-between transition-transform duration-300 ease-in-out ${
             isOpen ? 'translate-x-0' : (isRtl ? 'translate-x-full pointer-events-none' : '-translate-x-full pointer-events-none')
           }`}
           dir={dir}
@@ -149,7 +165,7 @@ export default function Sidebar() {
 
             {/* Navigation Links */}
             <nav className="space-y-1">
-              {navSections.map((section, sIdx) => (
+              {visibleNavSections.map((section, sIdx) => (
                 <React.Fragment key={section.id}>
                   {sIdx > 0 && <div className="my-2.5 border-t border-border/70" />}
                   <div className="space-y-1">
@@ -243,7 +259,7 @@ export default function Sidebar() {
 
   return (
     <aside
-      className={`bg-surface-card ${sidebarBorderClass} border-border min-h-[calc(100vh-5rem)] flex flex-col justify-between transition-all duration-300 ease-in-out flex-shrink-0 select-none ${sidebarWidthClass}`}
+      className={`no-print bg-surface-card ${sidebarBorderClass} border-border min-h-[calc(100vh-5rem)] flex flex-col justify-between transition-all duration-300 ease-in-out flex-shrink-0 select-none ${sidebarWidthClass}`}
     >
       <div className="space-y-5">
         
@@ -306,7 +322,7 @@ export default function Sidebar() {
 
         {/* Navigation Links */}
         <nav className="space-y-1">
-          {navSections.map((section, sIdx) => (
+          {visibleNavSections.map((section, sIdx) => (
             <React.Fragment key={section.id}>
               {sIdx > 0 && (
                 <div className={`my-2.5 border-t border-border/70 ${isCollapsed ? 'mx-auto w-6' : 'mx-1'}`} />

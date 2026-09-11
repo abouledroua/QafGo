@@ -46,7 +46,13 @@ export const AuthProvider = ({ children }) => {
       setUser(res.user);
       return res;
     }
-    throw new Error(res.message || 'فشل تسجيل الدخول');
+    const currentLang = localStorage.getItem('qafgo_lang') || 'ar';
+    const fallbackLoginMsg = currentLang === 'fr'
+      ? 'Échec de la connexion'
+      : currentLang === 'en'
+        ? 'Login failed'
+        : 'فشل تسجيل الدخول';
+    throw new Error(res.message || fallbackLoginMsg);
   };
 
   const logout = () => {

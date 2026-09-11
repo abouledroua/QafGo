@@ -2,6 +2,19 @@ import pool from '../config/db.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
+export const ALL_PERMISSIONS = [
+  'dashboard',
+  'students',
+  'transfers',
+  'tracks',
+  'timetable',
+  'teachers',
+  'finance',
+  'rollover',
+  'settings',
+  'users'
+];
+
 export const ensureDefaultAdminUser = async () => {
   try {
     await pool.query(`
@@ -10,10 +23,36 @@ export const ensureDefaultAdminUser = async () => {
         username VARCHAR(100) NOT NULL UNIQUE,
         password_hash VARCHAR(255) NOT NULL,
         full_name VARCHAR(150) NOT NULL,
-        role ENUM('ADMIN', 'TEACHER', 'SUPERVISOR') DEFAULT 'ADMIN',
+        role VARCHAR(50) DEFAULT 'ADMIN',
+        is_active TINYINT(1) DEFAULT 1,
+        permissions JSON NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    try {
+      const [colActive] = await pool.query(`SHOW COLUMNS FROM users LIKE 'is_active'`);
+      if (colActive.length === 0) {
+        await pool.query(`ALTER TABLE users ADD COLUMN is_active TINYINT(1) DEFAULT 1`);
+      }
+    } catch (e) {
+      console.warn('is_active column check:', e.message);
+    }
+
+    try {
+      const [colPerms] = await pool.query(`SHOW COLUMNS FROM users LIKE 'permissions'`);
+      if (colPerms.length === 0) {
+        await pool.query(`ALTER TABLE users ADD COLUMN permissions JSON NULL`);
+      }
+    } catch (e) {
+      console.warn('permissions column check:', e.message);
+    }
+
+    try {
+      await pool.query(`ALTER TABLE users MODIFY COLUMN role VARCHAR(50) DEFAULT 'ADMIN'`);
+    } catch (e) {
+      // ignore
+    }
 
     const [rows] = await pool.query('SELECT id FROM users LIMIT 1');
     if (rows.length === 0) {
@@ -21,10 +60,16 @@ export const ensureDefaultAdminUser = async () => {
       const salt = await bcrypt.genSalt(10);
       const adminHash = await bcrypt.hash('admin', salt);
       await pool.query(
-        'INSERT INTO users (id, username, password_hash, full_name, role) VALUES (1, ?, ?, ?, ?)',
-        ['admin', adminHash, 'المدير العام للمنصة', 'ADMIN']
+        'INSERT INTO users (id, username, password_hash, full_name, role, is_active, permissions) VALUES (1, ?, ?, ?, ?, 1, ?)',
+        ['admin', adminHash, 'المدير العام للمنصة', 'ADMIN', JSON.stringify(ALL_PERMISSIONS)]
       );
       console.log('Default administrator user (admin / admin) created successfully.');
+    } else {
+      // Ensure admin user has full permissions
+      await pool.query(
+        `UPDATE users SET permissions = ?, is_active = 1 WHERE username = 'admin' AND (permissions IS NULL OR permissions = 'null')`,
+        [JSON.stringify(ALL_PERMISSIONS)]
+      );
     }
   } catch (error) {
     console.error('ensureDefaultAdminUser error:', error);
@@ -53,6 +98,15 @@ export const login = async (req, res) => {
     }
 
     const user = rows[0];
+
+    // Check if account is active
+    if (user.is_active === 0 || user.is_active === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'تم تعطيل هذا الحساب مؤقتاً. يرجى التواصل مع إدارة المنصة.'
+      });
+    }
+
     let isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch && user.username === 'admin' && (password === 'admin' || password === 'admin123')) {
       const isMatchAdmin = await bcrypt.compare('admin', user.password_hash);
@@ -66,8 +120,25 @@ export const login = async (req, res) => {
       return res.status(401).json({ success: false, message: req.t('auth_invalid_credentials') });
     }
 
+    let permissions = [];
+    if (user.role === 'ADMIN') {
+      permissions = ALL_PERMISSIONS;
+    } else if (user.permissions) {
+      try {
+        permissions = typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions;
+      } catch {
+        permissions = [];
+      }
+    }
+
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role, full_name: user.full_name },
+      {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        full_name: user.full_name,
+        permissions
+      },
       process.env.JWT_SECRET || 'qafgo_super_secure_jwt_secret_key_2026',
       { expiresIn: '7d' }
     );
@@ -80,7 +151,9 @@ export const login = async (req, res) => {
         id: user.id,
         username: user.username,
         full_name: user.full_name,
-        role: user.role
+        role: user.role,
+        is_active: Boolean(user.is_active !== 0),
+        permissions
       }
     });
   } catch (error) {
@@ -91,11 +164,33 @@ export const login = async (req, res) => {
 
 export const getMe = async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT id, username, full_name, role, created_at FROM users WHERE id = ?', [req.user.id]);
+    const [rows] = await pool.query(
+      'SELECT id, username, full_name, role, is_active, permissions, created_at FROM users WHERE id = ?',
+      [req.user.id]
+    );
     if (rows.length === 0) {
       return res.status(404).json({ success: false, message: req.t('not_found') });
     }
-    return res.json({ success: true, user: rows[0] });
+    const user = rows[0];
+    let permissions = [];
+    if (user.role === 'ADMIN') {
+      permissions = ALL_PERMISSIONS;
+    } else if (user.permissions) {
+      try {
+        permissions = typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions;
+      } catch {
+        permissions = [];
+      }
+    }
+
+    return res.json({
+      success: true,
+      user: {
+        ...user,
+        is_active: Boolean(user.is_active !== 0),
+        permissions
+      }
+    });
   } catch (error) {
     console.error('getMe error:', error);
     return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });

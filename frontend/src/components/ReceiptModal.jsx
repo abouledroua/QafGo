@@ -70,7 +70,7 @@ export default function ReceiptModal({ isOpen, onClose, payment }) {
               )}
               <div>
                 <h3 className="text-lg font-black text-slate-900 leading-tight">
-                  {settings?.school_name || 'مدرسة النور القرآنية والتربوية'}
+                  {settings?.school_name || t('receipt.default_school_name', 'مدرسة النور القرآنية والتربوية')}
                 </h3>
                 {settings?.legal_registration_no && (
                   <p className="text-[11px] font-bold text-blue-600">

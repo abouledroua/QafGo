@@ -93,7 +93,73 @@ export const getStudents = async (req, res) => {
       }
     }
 
-    return res.json({ success: true, data: Array.from(studentsMap.values()) });
+    // Fetch payments for current month to compute debt / unpaid dues status
+    const currentMonthRef = new Date().toISOString().slice(0, 7);
+    const [monthPayments] = await pool.query(
+      `SELECT student_id, group_id, payment_status, amount FROM payments WHERE month_ref = ?`,
+      [currentMonthRef]
+    );
+
+    // Compute financial / debt status for each student
+    const resultList = [];
+    for (const student of studentsMap.values()) {
+      const activeEnrollments = student.enrollments.filter(e => e.status === 'ACTIVE');
+      let hasUnpaid = false;
+      let unpaidAmount = 0;
+      const unpaidGroups = [];
+
+      if (activeEnrollments.length === 0) {
+        student.financial_status = 'NOT_ENROLLED';
+      } else {
+        const allFree = activeEnrollments.every(e => e.is_free === 1 || e.is_free === true);
+        if (allFree) {
+          student.financial_status = 'FREE';
+        } else {
+          for (const en of activeEnrollments) {
+            if (en.is_free !== 1 && en.discount_type !== 'FULL_EXEMPTION') {
+              const hasPaid = monthPayments.some(
+                p => p.student_id === student.id && p.group_id === en.group_id
+              );
+              if (!hasPaid) {
+                let fee = parseFloat(en.monthly_fee || 0);
+                if (en.discount_type === 'PERCENTAGE') {
+                  fee -= (fee * parseFloat(en.discount_value || 0) / 100);
+                } else if (en.discount_type === 'FIXED_AMOUNT') {
+                  fee = Math.max(0, fee - parseFloat(en.discount_value || 0));
+                }
+                if (fee > 0) {
+                  hasUnpaid = true;
+                  unpaidAmount += fee;
+                  unpaidGroups.push(en.group_name);
+                }
+              }
+            }
+          }
+
+          if (hasUnpaid) {
+            student.financial_status = 'UNPAID';
+          } else {
+            const hasExemption = activeEnrollments.some(e => e.discount_type === 'FULL_EXEMPTION');
+            student.financial_status = hasExemption ? 'EXEMPTED' : 'PAID';
+          }
+        }
+      }
+
+      student.has_unpaid = hasUnpaid;
+      student.unpaid_amount = unpaidAmount;
+      student.unpaid_groups = unpaidGroups;
+      student.unpaid_month = currentMonthRef;
+
+      // Filter by financial status if requested in query
+      if (req.query.financial_status) {
+        if (req.query.financial_status === 'UNPAID' && !hasUnpaid) continue;
+        if (req.query.financial_status === 'PAID' && (hasUnpaid || student.financial_status === 'NOT_ENROLLED')) continue;
+      }
+
+      resultList.push(student);
+    }
+
+    return res.json({ success: true, data: resultList });
   } catch (error) {
     console.error('getStudents error:', error);
     return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
@@ -466,6 +532,36 @@ export const getStudentLifetimeDossier = async (req, res) => {
       }
     });
 
+    // Calculate current month's unpaid dues for active enrollments
+    const currentMonthRef = new Date().toISOString().slice(0, 7);
+    let currentDebt = 0;
+    const unpaidEnrollments = [];
+
+    for (const en of enrollments) {
+      if (en.status === 'ACTIVE' && en.is_free !== 1 && en.discount_type !== 'FULL_EXEMPTION') {
+        const hasPaidCurrentMonth = payments.some(
+          p => p.group_id === en.group_id && p.month_ref === currentMonthRef
+        );
+        if (!hasPaidCurrentMonth) {
+          let fee = parseFloat(en.monthly_fee || 0);
+          if (en.discount_type === 'PERCENTAGE') {
+            fee -= (fee * parseFloat(en.discount_value || 0) / 100);
+          } else if (en.discount_type === 'FIXED_AMOUNT') {
+            fee = Math.max(0, fee - parseFloat(en.discount_value || 0));
+          }
+          if (fee > 0) {
+            currentDebt += fee;
+            unpaidEnrollments.push({
+              group_id: en.group_id,
+              group_name: en.group_name,
+              monthly_fee: fee,
+              month_ref: currentMonthRef
+            });
+          }
+        }
+      }
+    }
+
     // 8. Build Unified Multi-Year Timeline Events
     // Combine enrollments, transfers, evaluations, awards into a unified timeline array sorted chronologically
     const timeline = [];
@@ -567,7 +663,9 @@ export const getStudentLifetimeDossier = async (req, res) => {
           totalTutoringExams: tutoringGrades.length,
           totalPreschoolEvaluations: preschoolLogs.length,
           totalPaid,
-          totalExemptedVouchers
+          totalExemptedVouchers,
+          currentDebt,
+          unpaidEnrollments
         },
         enrollments,
         transfers,
@@ -582,6 +680,88 @@ export const getStudentLifetimeDossier = async (req, res) => {
 
   } catch (error) {
     console.error('getStudentLifetimeDossier error:', error);
+    return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
+  }
+};
+
+// Recalculate debt and financial status for all students in the active academic year
+export const recalculateAllDebts = async (req, res) => {
+  try {
+    const { academic_year_id } = req.body || req.query;
+
+    // Get current month reference e.g. "2026-09"
+    const currentMonthRef = new Date().toISOString().slice(0, 7);
+
+    // Fetch active enrollments with group fees
+    let enrollQuery = `
+      SELECT 
+        e.id AS enrollment_id,
+        e.student_id,
+        e.group_id,
+        e.academic_year_id,
+        e.discount_type,
+        e.discount_value,
+        g.is_free,
+        g.monthly_fee
+      FROM enrollments e
+      JOIN groups g ON e.group_id = g.id
+      WHERE e.status = 'ACTIVE'
+    `;
+    const params = [];
+    if (academic_year_id) {
+      enrollQuery += ` AND e.academic_year_id = ?`;
+      params.push(academic_year_id);
+    }
+
+    const [enrollments] = await pool.query(enrollQuery, params);
+
+    // Fetch current month payments
+    const [payments] = await pool.query(
+      `SELECT student_id, group_id, payment_status, amount FROM payments WHERE month_ref = ?`,
+      [currentMonthRef]
+    );
+
+    let totalStudentsWithDebt = 0;
+    let totalDebtAmount = 0;
+    const studentDebtMap = new Map();
+
+    for (const en of enrollments) {
+      if (en.is_free === 1 || en.discount_type === 'FULL_EXEMPTION') continue;
+
+      const hasPaid = payments.some(
+        p => p.student_id === en.student_id && p.group_id === en.group_id
+      );
+
+      if (!hasPaid) {
+        let fee = parseFloat(en.monthly_fee || 0);
+        if (en.discount_type === 'PERCENTAGE') {
+          fee -= (fee * parseFloat(en.discount_value || 0) / 100);
+        } else if (en.discount_type === 'FIXED_AMOUNT') {
+          fee = Math.max(0, fee - parseFloat(en.discount_value || 0));
+        }
+
+        if (fee > 0) {
+          const prevDebt = studentDebtMap.get(en.student_id) || 0;
+          studentDebtMap.set(en.student_id, prevDebt + fee);
+          totalDebtAmount += fee;
+        }
+      }
+    }
+
+    totalStudentsWithDebt = studentDebtMap.size;
+
+    return res.json({
+      success: true,
+      message: req.t('recalculate_debt_success') || 'تمت إعادة حساب الديون بنجاح',
+      data: {
+        currentMonthRef,
+        totalStudentsEvaluated: enrollments.length,
+        totalStudentsWithDebt,
+        totalDebtAmount
+      }
+    });
+  } catch (error) {
+    console.error('recalculateAllDebts error:', error);
     return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
   }
 };

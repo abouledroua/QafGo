@@ -13,7 +13,6 @@ import {
   Palette, 
   Lock, 
   Unlock, 
-  User, 
   LogOut, 
   Check, 
   ChevronDown,
@@ -51,17 +50,17 @@ export default function Navbar() {
   }, []);
 
   return (
-    <header className="sticky top-0 z-40 bg-surface-card/90 backdrop-blur-md border-b border-border transition-colors w-full">
-      <div className="w-full px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+    <header className="no-print sticky top-0 z-40 bg-surface-card/90 backdrop-blur-md border-b border-border transition-colors w-full">
+      <div className="w-full px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-4">
         
         {/* Start Section: Sidebar Toggle & Brand Logo */}
-        <div className="flex items-center gap-3 md:gap-4">
+        <div className="flex items-center gap-3 md:gap-4 min-w-0">
           
           {/* Sidebar Toggle Button */}
           <button
             type="button"
             onClick={toggleSidebar}
-            className={`p-2.5 rounded-2xl border transition-all flex items-center justify-center ${
+            className={`p-2.5 rounded-2xl border transition-all flex items-center justify-center shrink-0 ${
               isOpen
                 ? 'bg-primary/10 text-primary border-primary/30 hover:bg-primary/20 shadow-sm'
                 : 'bg-surface hover:bg-surface-hover text-text-muted hover:text-text-main border-border shadow-sm'
@@ -77,29 +76,37 @@ export default function Navbar() {
           </button>
 
           {settings?.logo_url ? (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 min-w-0">
               <img
                 src={settings.logo_url}
                 alt={settings.school_name || t('nav.brand_title')}
-                className="w-12 h-12 rounded-2xl object-contain p-1 bg-surface border border-border shadow-sm"
+                className="w-12 h-12 rounded-2xl object-contain p-1 bg-surface border border-border shadow-sm shrink-0"
               />
-              <div className="flex flex-col">
-                <span className="font-extrabold text-xl lg:text-2xl text-text-main font-cairo leading-tight truncate max-w-xs lg:max-w-md">
+              <div className="flex flex-col min-w-0">
+                <span 
+                  className="font-extrabold text-xl lg:text-2xl text-text-main font-cairo leading-tight truncate max-w-[200px] sm:max-w-xs md:max-w-md lg:max-w-xl xl:max-w-3xl 2xl:max-w-none"
+                  title={settings.school_name}
+                >
                   {settings.school_name}
                 </span>
-                <span className="text-[11px] font-bold text-primary">
+                <span className="text-[11px] font-bold text-primary truncate">
                   {t('nav.brand_subtitle')}
                 </span>
               </div>
             </div>
           ) : (
-            <div className="flex items-center gap-3">
-              <QafGoLogo className="w-12 h-12" showText={false} />
-              <div className="flex flex-col">
-                <span className="font-extrabold text-xl lg:text-2xl text-text-main font-cairo leading-tight truncate max-w-xs lg:max-w-md">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="shrink-0">
+                <QafGoLogo className="w-12 h-12" showText={false} />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span 
+                  className="font-extrabold text-xl lg:text-2xl text-text-main font-cairo leading-tight truncate max-w-[200px] sm:max-w-xs md:max-w-md lg:max-w-xl xl:max-w-3xl 2xl:max-w-none"
+                  title={settings?.school_name || t('nav.brand_title')}
+                >
                   {settings?.school_name || t('nav.brand_title')}
                 </span>
-                <span className="text-[11px] font-bold text-primary">
+                <span className="text-[11px] font-bold text-primary truncate">
                   {t('nav.brand_subtitle')}
                 </span>
               </div>
@@ -108,7 +115,7 @@ export default function Navbar() {
         </div>
 
         {/* Center / End Controls */}
-        <div className="flex items-center gap-2.5 sm:gap-3 md:gap-4">
+        <div className="flex items-center gap-2.5 sm:gap-3 md:gap-4 shrink-0">
           
           {/* 1. Global Academic Year Switcher */}
           <div className="hidden sm:flex items-center gap-2 bg-surface px-3 py-1.5 rounded-2xl border border-border">
@@ -145,7 +152,7 @@ export default function Navbar() {
           <LanguageSelector />
 
           {/* 3. Themes Switcher Dropdown */}
-          <div className="relative" ref={themeRef}>
+          <div className="hidden sm:block relative" ref={themeRef}>
             <button
               type="button"
               onClick={() => setThemeDropdownOpen(!themeDropdownOpen)}
@@ -188,7 +195,7 @@ export default function Navbar() {
                             style={{ backgroundColor: theme.color }}
                           />
                           <div className="flex flex-col text-start">
-                            <span className="leading-tight">{theme.name}</span>
+                            <span className="leading-tight">{t(`theme.${theme.id.replace(/-/g, '_')}`, theme.name)}</span>
                             <span className="text-[10px] text-text-muted font-normal">
                               {theme.isDark ? t('nav.theme_dark') : t('nav.theme_light')}
                             </span>
@@ -203,12 +210,9 @@ export default function Navbar() {
             )}
           </div>
 
-          {/* 4. User Badge & Quick Logout */}
+          {/* 4. User Info & Quick Logout */}
           <div className="flex items-center gap-2 border-s border-border ps-3">
-            <div className="w-9 h-9 rounded-2xl bg-primary/10 text-primary flex items-center justify-center font-black text-sm border border-primary/20">
-              <User className="w-4 h-4" />
-            </div>
-            <div className="hidden lg:flex flex-col text-start">
+            <div className="flex flex-col text-start">
               <span className="text-xs font-bold text-text-main leading-tight">{user?.full_name || t('nav.user_admin')}</span>
               <span className="text-[10px] text-text-muted">{user?.role === 'ADMIN' ? t('nav.user_admin') : 'Staff'}</span>
             </div>

@@ -24,10 +24,13 @@ import {
   RotateCcw,
   Archive,
   AlertTriangle,
-  CheckCircle2
+  CheckCircle2,
+  Edit3
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import SearchableSelect from '../components/SearchableSelect';
+import GroupScheduleBuilder from '../components/GroupScheduleBuilder';
+import GroupEditModal from '../components/GroupEditModal';
 
 export default function TracksPage() {
   const { selectedYearId, selectedYearObj } = useAcademicYear();
@@ -53,9 +56,19 @@ export default function TracksPage() {
     teacher_id: '',
     room: '',
     schedule: '',
+    sessions: [],
     is_free: false,
     monthly_fee: 1500
   });
+
+  // Edit Group Modal state
+  const [editingGroup, setEditingGroup] = useState(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+
+  const handleOpenEditModal = (group) => {
+    setEditingGroup(group);
+    setEditModalOpen(true);
+  };
 
   const fetchGroups = useCallback(async () => {
     if (!selectedYearId) {
@@ -102,6 +115,8 @@ export default function TracksPage() {
     fetchDependencies();
   }, []);
 
+  const [scheduleConflict, setScheduleConflict] = useState(false);
+
   const handleCreateGroup = async (e) => {
     e.preventDefault();
     if (!formData.name) {
@@ -109,9 +124,15 @@ export default function TracksPage() {
       return;
     }
 
+    if (formData.track_type === 'TUTORING' && scheduleConflict) {
+      showNotification(t('tracks.schedule_overlap_error_toast'), 'warning');
+      return;
+    }
+
     try {
       const payload = {
         ...formData,
+        subject_name: formData.track_type === 'PRESCHOOL' ? null : (formData.subject_name?.trim() || null),
         academic_year_id: selectedYearId,
         teacher_id: formData.teacher_id ? parseInt(formData.teacher_id, 10) : null,
         monthly_fee: formData.is_free ? 0 : parseFloat(formData.monthly_fee) || 0
@@ -121,6 +142,7 @@ export default function TracksPage() {
       if (res.success) {
         showNotification(res.message || t('tracks.group_created_success'), 'success');
         setModalOpen(false);
+        setScheduleConflict(false);
         setFormData({
           name: '',
           track_type: 'HALAQA',
@@ -128,6 +150,7 @@ export default function TracksPage() {
           teacher_id: '',
           room: '',
           schedule: '',
+          sessions: [],
           is_free: false,
           monthly_fee: 1500
         });
@@ -253,6 +276,26 @@ export default function TracksPage() {
       return true;
     });
   }, [groups, isQuranEnabled, isPreschoolEnabled, isTutoringEnabled]);
+
+  // Filter teachers matching the currently selected track type in modal
+  const filteredTeachers = useMemo(() => {
+    const selectedTrack = formData.track_type;
+    if (!selectedTrack) return teachers;
+    return teachers.filter(t => {
+      // If teacher has track_types array
+      if (Array.isArray(t.track_types) && t.track_types.length > 0) {
+        if (t.track_types.includes('GENERAL') || t.track_types.includes('ALL')) return true;
+        return t.track_types.includes(selectedTrack);
+      }
+      // If teacher has track_type string (e.g. 'HALAQA' or 'HALAQA,TUTORING' or 'GENERAL')
+      if (typeof t.track_type === 'string') {
+        if (t.track_type === 'GENERAL' || t.track_type.includes('ALL')) return true;
+        const types = t.track_type.split(',').map(s => s.trim());
+        return types.includes(selectedTrack);
+      }
+      return true;
+    });
+  }, [teachers, formData.track_type]);
 
   const statusCounts = useMemo(() => {
     return {
@@ -532,7 +575,7 @@ export default function TracksPage() {
                       {group.name}
                     </h3>
                     <div className="flex items-center justify-between gap-2 mt-1">
-                      {group.subject_name ? (
+                      {group.subject_name && group.track_type !== 'PRESCHOOL' ? (
                         <p className="text-xs text-text-muted truncate">{group.subject_name}</p>
                       ) : <span />}
                       {group.is_free ? (
@@ -671,12 +714,22 @@ export default function TracksPage() {
                     </div>
                   </div>
 
-                  <Link
-                    to={`/groups/${group.id}`}
-                    className="w-full text-center py-2 text-xs font-bold rounded-xl bg-surface hover:bg-primary hover:text-white border border-border hover:border-primary transition-all"
-                  >
-                    {t('tracks.view_group_and_evaluations')} {isRtl ? '←' : '→'}
-                  </Link>
+                  <div className="flex items-center gap-2 w-full">
+                    <Link
+                      to={`/groups/${group.id}`}
+                      className="flex-1 text-center py-2 text-xs font-bold rounded-xl bg-surface hover:bg-primary hover:text-white border border-border hover:border-primary transition-all"
+                    >
+                      {t('tracks.view_group_and_evaluations')} {isRtl ? '←' : '→'}
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditModal(group)}
+                      className="p-2 text-text-muted hover:text-primary hover:bg-primary/10 border border-border hover:border-primary/30 rounded-xl transition-all shrink-0"
+                      title={t('tracks.edit_group_btn')}
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
 
               </div>
@@ -688,9 +741,9 @@ export default function TracksPage() {
       {/* Create Group Modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
-          <div className="w-full max-w-xl bg-surface-card border border-border rounded-3xl shadow-2xl overflow-hidden" dir={dir}>
+          <div className="w-full max-w-xl bg-surface-card border border-border rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col" dir={dir}>
             
-            <div className="flex items-center justify-between p-6 border-b border-border bg-surface">
+            <div className="flex items-center justify-between p-6 border-b border-border bg-surface shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="p-2.5 bg-primary/10 text-primary rounded-xl">
                   <Layers className="w-6 h-6" />
@@ -706,7 +759,7 @@ export default function TracksPage() {
               </button>
             </div>
 
-            <form onSubmit={handleCreateGroup} className="p-6 space-y-4">
+            <form onSubmit={handleCreateGroup} className="p-6 space-y-4 overflow-y-auto">
               {/* Instance Mode Notification */}
               <div className="p-3 bg-amber-500/10 border border-amber-500/25 rounded-2xl flex items-center gap-2.5 text-xs text-amber-700 dark:text-amber-300 font-bold">
                 <Clock className="w-4 h-4 text-amber-500 shrink-0" />
@@ -719,7 +772,27 @@ export default function TracksPage() {
                 </label>
                 <select
                   value={formData.track_type}
-                  onChange={(e) => setFormData({ ...formData, track_type: e.target.value })}
+                  onChange={(e) => {
+                    const newTrack = e.target.value;
+                    setFormData(prev => {
+                      // Check if currently selected teacher teaches the new track
+                      let keepTeacher = false;
+                      if (prev.teacher_id) {
+                        const currentTeacher = teachers.find(tc => String(tc.id) === String(prev.teacher_id));
+                        if (currentTeacher) {
+                          const trackList = Array.isArray(currentTeacher.track_types)
+                            ? currentTeacher.track_types
+                            : (currentTeacher.track_type ? currentTeacher.track_type.split(',').map(s => s.trim()) : ['GENERAL']);
+                          keepTeacher = trackList.includes('GENERAL') || trackList.includes('ALL') || trackList.includes(newTrack);
+                        }
+                      }
+                      return {
+                        ...prev,
+                        track_type: newTrack,
+                        teacher_id: keepTeacher ? prev.teacher_id : ''
+                      };
+                    });
+                  }}
                   className="w-full p-3 bg-surface border border-border rounded-xl text-sm font-bold text-text-main"
                 >
                   {isQuranEnabled && (
@@ -748,7 +821,8 @@ export default function TracksPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Subject / Program (hidden when track is preschool) */}
+              {formData.track_type !== 'PRESCHOOL' && (
                 <div>
                   <label className="block text-xs font-bold text-text-main mb-1">
                     {t('tracks.subject_program_label')}
@@ -761,70 +835,105 @@ export default function TracksPage() {
                     className="w-full p-3 bg-surface border border-border rounded-xl text-sm text-text-main"
                   />
                 </div>
+              )}
 
-                <div>
-                  <label className="block text-xs font-bold text-text-main mb-1">
-                    {t('tracks.teacher_label')}
-                  </label>
-                  <SearchableSelect
-                    options={teachers.map(t => ({
-                      value: String(t.id),
-                      label: t.full_name,
-                      sublabel: t.specialty,
-                      badge: t.phone || '',
-                      searchExtra: `${t.full_name} ${t.specialty || ''} ${t.phone || ''}`
-                    }))}
-                    value={formData.teacher_id}
-                    onChange={(val) => setFormData({ ...formData, teacher_id: val })}
-                    placeholder={t('tracks.select_teacher_placeholder')}
-                    searchPlaceholder={t('tracks.search_teacher_placeholder')}
-                    icon={GraduationCap}
-                  />
+              {/* Teacher */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-1.5">
+                    <label className="block text-xs font-bold text-text-main">
+                      {t('tracks.teacher_label')}
+                    </label>
+                    <span className="text-[10px] font-bold text-primary px-1.5 py-0.5 rounded-md bg-primary/10">
+                      ({filteredTeachers.length})
+                    </span>
+                  </div>
+                  <Link 
+                    to="/teachers" 
+                    className="text-[11px] text-primary hover:underline font-bold"
+                    title={t('tracks.manage_teachers_link')}
+                  >
+                    {t('tracks.manage_teachers_link')}
+                  </Link>
                 </div>
+                <SearchableSelect
+                  options={filteredTeachers.map(t => ({
+                    value: String(t.id),
+                    label: t.full_name,
+                    sublabel: t.specialty,
+                    badge: t.phone || '',
+                    avatarUrl: t.photo_url || null,
+                    avatarText: t.full_name ? t.full_name.charAt(0).toUpperCase() : '?',
+                    searchExtra: `${t.full_name} ${t.specialty || ''} ${t.phone || ''}`
+                  }))}
+                  value={formData.teacher_id}
+                  onChange={(val) => setFormData({ ...formData, teacher_id: val })}
+                  placeholder={
+                    formData.track_type === 'HALAQA'
+                      ? t('tracks.select_teacher_for_track_placeholder', { track: t('tracks.track_quran') })
+                      : formData.track_type === 'PRESCHOOL'
+                      ? t('tracks.select_teacher_for_track_placeholder', { track: t('tracks.track_preschool') })
+                      : formData.track_type === 'TUTORING'
+                      ? t('tracks.select_teacher_for_track_placeholder', { track: t('tracks.track_tutoring') })
+                      : t('tracks.select_teacher_placeholder')
+                  }
+                  searchPlaceholder={t('tracks.search_teacher_placeholder')}
+                  icon={GraduationCap}
+                />
+                {filteredTeachers.length === 0 && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                    {t('tracks.no_teachers_for_track_hint')}
+                  </p>
+                )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-bold text-text-main">
-                      {t('tracks.classroom_label')}
-                    </label>
-                    <Link 
-                      to="/timetable" 
-                      className="text-[11px] text-primary hover:underline font-bold"
-                      title={t('tracks.manage_classrooms_link')}
-                    >
-                      {t('tracks.manage_classrooms_link')}
-                    </Link>
-                  </div>
-                  <SearchableSelect
-                    options={classrooms.map(c => ({
-                      value: c.name,
-                      label: c.name,
-                      sublabel: c.code ? `رمز: ${c.code}` : '',
-                      badge: `${t('classrooms_timetable.room_capacity')}: ${c.capacity}`,
-                      searchExtra: `${c.name} ${c.code || ''} ${c.equipment || ''}`
-                    }))}
-                    value={formData.room}
-                    onChange={(val) => setFormData({ ...formData, room: val })}
-                    placeholder={t('tracks.select_classroom_placeholder')}
-                    searchPlaceholder={t('tracks.search_classroom_placeholder')}
-                    icon={MapPin}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-text-main mb-1">
-                    {t('tracks.weekly_schedule_label')}
+              {/* Classroom */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-text-main">
+                    {t('tracks.classroom_label')}
                   </label>
-                  <input
-                    type="text"
-                    placeholder={t('tracks.weekly_schedule_placeholder')}
-                    value={formData.schedule}
-                    onChange={(e) => setFormData({ ...formData, schedule: e.target.value })}
-                    className="w-full p-3 bg-surface border border-border rounded-xl text-sm text-text-main"
-                  />
+                  <Link 
+                    to="/timetable" 
+                    className="text-[11px] text-primary hover:underline font-bold"
+                    title={t('tracks.manage_classrooms_link')}
+                  >
+                    {t('tracks.manage_classrooms_link')}
+                  </Link>
                 </div>
+                <SearchableSelect
+                  options={classrooms.map(c => ({
+                    value: c.name,
+                    label: c.name,
+                    sublabel: c.code ? `${t('classrooms_timetable.classroom_code', 'رمز')}: ${c.code}` : '',
+                    badge: `${t('classrooms_timetable.room_capacity')}: ${c.capacity}`,
+                    searchExtra: `${c.name} ${c.code || ''} ${c.equipment || ''}`
+                  }))}
+                  value={formData.room}
+                  onChange={(val) => setFormData({ ...formData, room: val })}
+                  placeholder={t('tracks.select_classroom_placeholder')}
+                  searchPlaceholder={t('tracks.search_classroom_placeholder')}
+                  icon={MapPin}
+                />
+              </div>
+
+              {/* Weekly Schedule Builder */}
+              <div>
+                <label className="block text-xs font-bold text-text-main mb-1">
+                  {t('tracks.weekly_schedule_label')}
+                </label>
+                <GroupScheduleBuilder
+                  trackType={formData.track_type}
+                  value={formData.schedule}
+                  onChange={(scheduleText, sessionsList, meta) => {
+                    setFormData(prev => ({
+                      ...prev,
+                      schedule: scheduleText,
+                      sessions: sessionsList
+                    }));
+                    setScheduleConflict(Boolean(meta?.hasConflict));
+                  }}
+                />
               </div>
 
               {/* Flexible Pricing Options */}
@@ -881,6 +990,21 @@ export default function TracksPage() {
           </div>
         </div>
       )}
+
+      {/* Edit Group Modal */}
+      <GroupEditModal
+        isOpen={editModalOpen}
+        onClose={() => {
+          setEditModalOpen(false);
+          setEditingGroup(null);
+        }}
+        group={editingGroup}
+        teachers={teachers}
+        classrooms={classrooms}
+        onSuccess={() => {
+          fetchGroups();
+        }}
+      />
 
     </div>
   );

@@ -31,10 +31,14 @@ import {
   Play,
   Pause,
   RotateCcw,
-  Archive
+  Archive,
+  Printer
 } from 'lucide-react';
 import TransferModal from '../components/TransferModal';
 import SearchableSelect from '../components/SearchableSelect';
+import GroupScheduleBuilder from '../components/GroupScheduleBuilder';
+import GroupEditModal from '../components/GroupEditModal';
+import GroupRosterPrintModal from '../components/GroupRosterPrintModal';
 import { DateTimeFormatter } from '../utils/dateTimeFormatter';
 
 export default function GroupDetailsPage() {
@@ -57,6 +61,19 @@ export default function GroupDetailsPage() {
   const [changeRoomModalOpen, setChangeRoomModalOpen] = useState(false);
   const [newRoom, setNewRoom] = useState('');
   const [changingRoom, setChangingRoom] = useState(false);
+
+  // Full Edit Group Modal state
+  const [editGroupModalOpen, setEditGroupModalOpen] = useState(false);
+
+  // Print Roster Modal state (A4)
+  const [printRosterModalOpen, setPrintRosterModalOpen] = useState(false);
+
+  // Change Schedule State
+  const [changeScheduleModalOpen, setChangeScheduleModalOpen] = useState(false);
+  const [newSchedule, setNewSchedule] = useState('');
+  const [newSessions, setNewSessions] = useState([]);
+  const [scheduleConflict, setScheduleConflict] = useState(false);
+  const [changingSchedule, setChangingSchedule] = useState(false);
 
   // Temporary Date Range Substitution state
   const [rangeSubModalOpen, setRangeSubModalOpen] = useState(false);
@@ -107,6 +124,24 @@ export default function GroupDetailsPage() {
     return allStudents.filter(s => !enrolledStudentIds.has(s.id));
   }, [allStudents, enrolledStudentIds]);
 
+  // Teachers matching this group track
+  const filteredGroupTeachers = useMemo(() => {
+    const groupTrack = group?.track_type;
+    if (!groupTrack) return allTeachers;
+    return allTeachers.filter(tc => {
+      if (Array.isArray(tc.track_types) && tc.track_types.length > 0) {
+        if (tc.track_types.includes('GENERAL') || tc.track_types.includes('ALL')) return true;
+        return tc.track_types.includes(groupTrack);
+      }
+      if (typeof tc.track_type === 'string') {
+        if (tc.track_type === 'GENERAL' || tc.track_type.includes('ALL')) return true;
+        const types = tc.track_type.split(',').map(s => s.trim());
+        return types.includes(groupTrack);
+      }
+      return true;
+    });
+  }, [allTeachers, group?.track_type]);
+
   // Evaluation state
   const [evalStudentEnrollmentId, setEvalStudentEnrollmentId] = useState('');
   const [evalDate, setEvalDate] = useState(() => DateTimeFormatter.toInputDate());
@@ -140,7 +175,7 @@ export default function GroupDetailsPage() {
         }
       }
     } catch (err) {
-      showNotification(err.message || 'فشل جلب تفاصيل الفوج', 'error');
+      showNotification(err.message || t('groups.fetch_error', 'فشل جلب تفاصيل الفوج'), 'error');
     } finally {
       setLoading(false);
     }
@@ -378,6 +413,33 @@ export default function GroupDetailsPage() {
     }
   };
 
+  // Change Weekly Schedule for Group
+  const handleChangeSchedule = async (e) => {
+    e.preventDefault();
+    if (group.track_type === 'TUTORING' && scheduleConflict) {
+      showNotification(t('tracks.schedule_overlap_error_toast'), 'warning');
+      return;
+    }
+
+    try {
+      setChangingSchedule(true);
+      const res = await api.put(`/groups/${group.id}`, {
+        schedule: newSchedule || null,
+        sessions: newSessions
+      });
+      if (res.success) {
+        showNotification(t('group_details.schedule_updated_success'), 'success');
+        setChangeScheduleModalOpen(false);
+        setScheduleConflict(false);
+        fetchGroupDetails();
+      }
+    } catch (err) {
+      showNotification(err.message || t('common.error'), 'error');
+    } finally {
+      setChangingSchedule(false);
+    }
+  };
+
   // Save Temporary Substitution for Multiple Days (Date Range)
   const handleSaveRangeSubstitution = async (e) => {
     e.preventDefault();
@@ -558,6 +620,7 @@ export default function GroupDetailsPage() {
 
   return (
     <div className="space-y-6 animate-fadeIn" dir={dir}>
+      <div className={printRosterModalOpen ? 'no-print space-y-6' : 'space-y-6'}>
       
       {/* Breadcrumb Navigation */}
       <div className="flex items-center gap-2 text-xs font-bold text-text-muted">
@@ -626,7 +689,7 @@ export default function GroupDetailsPage() {
             <h1 className="text-2xl lg:text-3xl font-black text-text-main font-cairo">
               {group.name}
             </h1>
-            {group.subject_name && (
+            {group.subject_name && group.track_type !== 'PRESCHOOL' && (
               <p className="text-sm text-text-muted">{group.subject_name}</p>
             )}
           </div>
@@ -711,6 +774,26 @@ export default function GroupDetailsPage() {
 
             <button
               type="button"
+              onClick={() => setEditGroupModalOpen(true)}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-surface hover:bg-surface-hover text-text-main border border-border text-xs font-bold transition-all shadow-xs"
+              title={t('group_details.edit_group_btn')}
+            >
+              <Edit3 className="w-4 h-4 text-primary" />
+              <span>{t('group_details.edit_group_btn')}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setPrintRosterModalOpen(true)}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-surface hover:bg-surface-hover text-text-main border border-border text-xs font-bold transition-all shadow-xs cursor-pointer"
+              title={t('group_details.print_roster_btn')}
+            >
+              <Printer className="w-4 h-4 text-primary" />
+              <span>{t('group_details.print_roster_btn')}</span>
+            </button>
+
+            <button
+              type="button"
               onClick={handleOpenEnrollModal}
               className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-primary text-white text-xs font-bold shadow-lg shadow-primary/25 hover:bg-primary-hover transition-all"
             >
@@ -740,9 +823,24 @@ export default function GroupDetailsPage() {
               <span>{t('group_details.change_supervisor')}</span>
             </button>
           </div>
-          <div className="flex items-center gap-2.5 p-2.5 bg-surface/60 rounded-2xl border border-border/60">
-            <Clock className="w-4 h-4 text-primary shrink-0" />
-            <span>{t('group_details.weekly_schedule')} <strong className="text-text-main">{group.schedule || t('group_details.unspecified')}</strong></span>
+          <div className="flex items-center justify-between gap-2 p-2.5 bg-surface/60 rounded-2xl border border-border/60">
+            <div className="flex items-center gap-2 min-w-0">
+              <Clock className="w-4 h-4 text-primary shrink-0" />
+              <span className="truncate">{t('group_details.weekly_schedule')} <strong className="text-text-main">{group.schedule || t('group_details.unspecified')}</strong></span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setNewSchedule(group.schedule || '');
+                setNewSessions([]);
+                setChangeScheduleModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary text-[11px] font-bold transition-all shrink-0"
+              title={t('group_details.change_schedule')}
+            >
+              <Edit3 className="w-3 h-3" />
+              <span>{t('group_details.change_schedule')}</span>
+            </button>
           </div>
           <div className="flex items-center justify-between gap-2 p-2.5 bg-surface/60 rounded-2xl border border-border/60">
             <div className="flex items-center gap-2">
@@ -833,7 +931,7 @@ export default function GroupDetailsPage() {
           }`}
         >
           <CalendarCheck className="w-4 h-4" />
-          <span>رصد الحضور والغياب اليومي</span>
+          <span>{t('group_details.tab_attendance_daily', 'رصد الحضور والغياب اليومي')}</span>
         </button>
 
         <button
@@ -847,7 +945,11 @@ export default function GroupDetailsPage() {
         >
           <ClipboardCheck className="w-4 h-4" />
           <span>
-            {isHalaqa ? 'رصد الحفظ والمراجعة' : isPreschool ? 'رصد المهارات والسلوك' : 'رصد درجات الاختبارات'}
+            {isHalaqa
+              ? t('group_details.tab_eval_quran', 'رصد الحفظ والمراجعة')
+              : isPreschool
+                ? t('group_details.tab_eval_preschool', 'رصد المهارات والسلوك')
+                : t('group_details.tab_eval_tutoring', 'رصد درجات الاختبارات')}
           </span>
         </button>
       </div>
@@ -855,6 +957,23 @@ export default function GroupDetailsPage() {
       {/* Tab 1: Roster */}
       {activeTab === 'ROSTER' && (
         <div className="bg-surface-card border border-border rounded-3xl overflow-hidden shadow-sm">
+          <div className="p-4 border-b border-border/80 flex items-center justify-between gap-3 bg-surface/40 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-primary" />
+              <span className="text-xs font-bold text-text-main">
+                {t('group_details.tab_roster_count', { count: group.students?.length || 0 })}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPrintRosterModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface hover:bg-surface-hover text-text-main border border-border text-xs font-bold transition-all shadow-xs cursor-pointer"
+              title={t('group_details.print_roster_btn')}
+            >
+              <Printer className="w-3.5 h-3.5 text-primary" />
+              <span>{t('group_details.print_roster_btn')}</span>
+            </button>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-start text-sm">
               <thead className="bg-surface text-text-muted text-xs font-bold border-b border-border">
@@ -1581,8 +1700,10 @@ export default function GroupDetailsPage() {
                   options={availableStudentsForEnroll.map(s => ({
                     value: String(s.id),
                     label: s.full_name,
-                    sublabel: s.academic_level || s.guardian_phone || '',
+                    sublabel: s.academic_level ? `${s.academic_level}${s.guardian_phone ? ` • ${s.guardian_phone}` : ''}` : s.guardian_phone || '',
                     badge: s.reg_no,
+                    avatarUrl: s.photo_url || null,
+                    avatarText: s.full_name ? s.full_name.charAt(0).toUpperCase() : '?',
                     searchExtra: `${s.full_name} ${s.reg_no} ${s.academic_level || ''} ${s.guardian_name || ''} ${s.guardian_phone || ''}`
                   }))}
                   value={selectedStudentId}
@@ -1669,21 +1790,52 @@ export default function GroupDetailsPage() {
               </p>
 
               <div>
-                <label className="block text-xs font-bold text-text-main mb-1.5">{t('group_details.supervising_teacher')}</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <label className="block text-xs font-bold text-text-main">
+                      {t('group_details.supervising_teacher')}
+                    </label>
+                    <span className="text-[10px] font-bold text-primary px-1.5 py-0.5 rounded-md bg-primary/10">
+                      ({filteredGroupTeachers.length})
+                    </span>
+                  </div>
+                  <Link 
+                    to="/teachers" 
+                    className="text-[11px] text-primary hover:underline font-bold"
+                    title={t('tracks.manage_teachers_link')}
+                  >
+                    {t('tracks.manage_teachers_link')}
+                  </Link>
+                </div>
                 <SearchableSelect
-                  options={allTeachers.map(t => ({
+                  options={filteredGroupTeachers.map(t => ({
                     value: String(t.id),
                     label: t.full_name,
                     sublabel: t.specialty,
                     badge: t.phone || '-',
+                    avatarUrl: t.photo_url || null,
+                    avatarText: t.full_name ? t.full_name.charAt(0).toUpperCase() : '?',
                     searchExtra: `${t.full_name} ${t.specialty || ''} ${t.phone || ''}`
                   }))}
                   value={newPrimaryTeacherId}
                   onChange={(val) => setNewPrimaryTeacherId(val)}
-                  placeholder={t('group_details.select_student_placeholder')}
+                  placeholder={
+                    group?.track_type === 'HALAQA'
+                      ? t('tracks.select_teacher_for_track_placeholder', { track: t('tracks.track_quran') })
+                      : group?.track_type === 'PRESCHOOL'
+                      ? t('tracks.select_teacher_for_track_placeholder', { track: t('tracks.track_preschool') })
+                      : group?.track_type === 'TUTORING'
+                      ? t('tracks.select_teacher_for_track_placeholder', { track: t('tracks.track_tutoring') })
+                      : t('group_details.select_student_placeholder')
+                  }
                   searchPlaceholder={t('teachers.search_placeholder')}
                   icon={GraduationCap}
                 />
+                {filteredGroupTeachers.length === 0 && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                    {t('tracks.no_teachers_for_track_hint')}
+                  </p>
+                )}
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-border">
@@ -1745,7 +1897,7 @@ export default function GroupDetailsPage() {
                   options={allClassrooms.map(c => ({
                     value: c.name,
                     label: c.name,
-                    sublabel: c.code ? `رمز: ${c.code}` : '',
+                    sublabel: c.code ? `${t('classrooms_timetable.classroom_code', 'رمز')}: ${c.code}` : '',
                     badge: `${c.capacity} ${t('classrooms_timetable.room_capacity')}`,
                     searchExtra: `${c.name} ${c.code || ''}`
                   }))}
@@ -1772,6 +1924,66 @@ export default function GroupDetailsPage() {
                   className="px-5 py-2 bg-primary hover:bg-primary-hover text-white rounded-xl text-xs font-bold shadow-md shadow-primary/20 flex items-center gap-2 transition-all"
                 >
                   {changingRoom ? t('common.loading') : t('group_details.confirm_change_room')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Change Schedule Modal */}
+      {changeScheduleModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-lg bg-surface-card border border-border rounded-3xl shadow-2xl overflow-hidden p-6 space-y-5" dir={dir}>
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <h3 className="text-base font-extrabold text-text-main">
+                  {t('group_details.edit_schedule_modal_title')} ({group.name})
+                </h3>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setChangeScheduleModalOpen(false)}
+                className="w-8 h-8 rounded-xl bg-surface hover:bg-surface-hover border border-border flex items-center justify-center text-text-muted hover:text-text-main transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleChangeSchedule} className="space-y-4">
+              <GroupScheduleBuilder
+                trackType={group.track_type}
+                value={newSchedule}
+                onChange={(scheduleText, sessionsList, meta) => {
+                  setNewSchedule(scheduleText);
+                  setNewSessions(sessionsList);
+                  setScheduleConflict(Boolean(meta?.hasConflict));
+                }}
+              />
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => setChangeScheduleModalOpen(false)}
+                  disabled={changingSchedule}
+                  className="px-4 py-2 bg-surface hover:bg-surface-hover text-text-muted border border-border rounded-xl text-xs font-bold transition-colors"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="submit"
+                  disabled={changingSchedule}
+                  className="px-5 py-2 bg-primary hover:bg-primary-hover text-white rounded-xl text-xs font-bold shadow-md shadow-primary/20 flex items-center gap-2 transition-all"
+                >
+                  {changingSchedule ? (
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Check className="w-3.5 h-3.5" />
+                  )}
+                  <span>{t('common.save')}</span>
                 </button>
               </div>
             </form>
@@ -1878,6 +2090,26 @@ export default function GroupDetailsPage() {
           </div>
         </div>
       )}
+
+      {/* Full Edit Group Modal */}
+      <GroupEditModal
+        isOpen={editGroupModalOpen}
+        onClose={() => setEditGroupModalOpen(false)}
+        group={group}
+        teachers={allTeachers}
+        classrooms={allClassrooms}
+        onSuccess={() => {
+          fetchGroupDetails();
+        }}
+      />
+      </div>
+
+      {/* Printable Group Students Roster Modal (A4) */}
+      <GroupRosterPrintModal
+        isOpen={printRosterModalOpen}
+        onClose={() => setPrintRosterModalOpen(false)}
+        group={group}
+      />
 
     </div>
   );

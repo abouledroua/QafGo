@@ -2,12 +2,14 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import api from '../services/api';
 import { useNotification } from './NotificationContext';
 import { useTheme } from './ThemeContext';
+import { useLanguage } from './LanguageContext';
 
 const SettingsContext = createContext();
 
 export const SettingsProvider = ({ children }) => {
   const { showNotification } = useNotification();
   const { setTheme } = useTheme();
+  const { t } = useLanguage();
 
   const [settings, setSettings] = useState({
     school_name: 'مدرسة النور والفرقان القرآنية والتعليمية',
@@ -61,11 +63,11 @@ export const SettingsProvider = ({ children }) => {
         if (newSettingsData.default_theme) {
           setTheme(newSettingsData.default_theme);
         }
-        showNotification('تم حفظ إعدادات المؤسسة والنظام بنجاح', 'success');
+        showNotification(t('settings.settings_save_success', 'تم حفظ إعدادات المؤسسة والنظام بنجاح'), 'success');
         return res.data;
       }
     } catch (err) {
-      showNotification(err.message || 'فشل حفظ الإعدادات', 'error');
+      showNotification(err.message || t('settings.settings_save_error', 'فشل حفظ الإعدادات'), 'error');
       throw err;
     }
   };
@@ -83,11 +85,11 @@ export const SettingsProvider = ({ children }) => {
       });
 
       if (res.success) {
-        showNotification(type === 'stamp' ? 'تم رفع الختم والتوقيع الإداري بنجاح' : 'تم رفع الشعار الرسمي بنجاح', 'success');
+        showNotification(type === 'stamp' ? t('settings.stamp_uploaded_success', 'تم رفع الختم والتوقيع الإداري بنجاح') : t('settings.logo_uploaded_success', 'تم رفع الشعار الرسمي بنجاح'), 'success');
         return res.url;
       }
     } catch (err) {
-      showNotification(err.message || 'فشل رفع الملف', 'error');
+      showNotification(err.message || t('settings.upload_error', 'فشل رفع الملف'), 'error');
       throw err;
     }
   };
@@ -98,6 +100,7 @@ export const SettingsProvider = ({ children }) => {
       loading,
       updateSettings,
       uploadAsset,
+      fetchSettings,
       reloadSettings: fetchSettings
     }}>
       {children}

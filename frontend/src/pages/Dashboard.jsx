@@ -25,19 +25,19 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchSettings();
+    if (fetchSettings) {
+      fetchSettings();
+    }
   }, [fetchSettings]);
 
   useEffect(() => {
-    if (!selectedYearId) {
-      setLoading(false);
-      return;
-    }
-
     const fetchStats = async () => {
       try {
         setLoading(true);
-        const res = await api.get(`/stats/dashboard?academic_year_id=${selectedYearId}`);
+        const url = selectedYearId 
+          ? `/stats/dashboard?academic_year_id=${selectedYearId}`
+          : '/stats/dashboard';
+        const res = await api.get(url);
         if (res.success) {
           setStats(res.data);
         }
@@ -95,10 +95,13 @@ export default function Dashboard() {
       <div className={`grid grid-cols-1 sm:grid-cols-2 ${isQuranEnabled ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-5`}>
         
         {/* Total Active Students */}
-        <div className="p-6 bg-surface-card border border-border rounded-3xl shadow-sm hover:shadow-md transition-shadow">
+        <Link 
+          to="/students" 
+          className="p-6 bg-surface-card border border-border rounded-3xl shadow-sm hover:shadow-md hover:border-blue-500/30 hover:-translate-y-0.5 active:scale-[0.98] transition-all cursor-pointer group block"
+        >
           <div className="flex items-center justify-between mb-4">
-            <span className="text-xs font-bold text-text-muted">{t('dashboard.active_students')}</span>
-            <div className="p-3 bg-blue-500/10 text-blue-600 rounded-2xl">
+            <span className="text-xs font-bold text-text-muted group-hover:text-blue-600 transition-colors">{t('dashboard.active_students')}</span>
+            <div className="p-3 bg-blue-500/10 text-blue-600 rounded-2xl group-hover:bg-blue-500/20 group-hover:scale-110 transition-all">
               <Users className="w-6 h-6" />
             </div>
           </div>
@@ -106,13 +109,16 @@ export default function Dashboard() {
             {stats?.summary?.total_students || 0}
           </div>
           <p className="text-xs text-text-muted mt-1">{t('dashboard.students_desc')}</p>
-        </div>
+        </Link>
 
         {/* Total Groups */}
-        <div className="p-6 bg-surface-card border border-border rounded-3xl shadow-sm hover:shadow-md transition-shadow">
+        <Link 
+          to="/tracks" 
+          className="p-6 bg-surface-card border border-border rounded-3xl shadow-sm hover:shadow-md hover:border-emerald-500/30 hover:-translate-y-0.5 active:scale-[0.98] transition-all cursor-pointer group block"
+        >
           <div className="flex items-center justify-between mb-4">
-            <span className="text-xs font-bold text-text-muted">{t('dashboard.groups_and_circles')}</span>
-            <div className="p-3 bg-emerald-500/10 text-emerald-600 rounded-2xl">
+            <span className="text-xs font-bold text-text-muted group-hover:text-emerald-600 transition-colors">{t('dashboard.groups_and_circles')}</span>
+            <div className="p-3 bg-emerald-500/10 text-emerald-600 rounded-2xl group-hover:bg-emerald-500/20 group-hover:scale-110 transition-all">
               <Layers className="w-6 h-6" />
             </div>
           </div>
@@ -120,13 +126,16 @@ export default function Dashboard() {
             {stats?.summary?.total_groups || 0}
           </div>
           <p className="text-xs text-text-muted mt-1">{t('dashboard.groups_desc')}</p>
-        </div>
+        </Link>
 
         {/* Total Transfers */}
-        <div className="p-6 bg-surface-card border border-border rounded-3xl shadow-sm hover:shadow-md transition-shadow">
+        <Link 
+          to="/transfers" 
+          className="p-6 bg-surface-card border border-border rounded-3xl shadow-sm hover:shadow-md hover:border-amber-500/30 hover:-translate-y-0.5 active:scale-[0.98] transition-all cursor-pointer group block"
+        >
           <div className="flex items-center justify-between mb-4">
-            <span className="text-xs font-bold text-text-muted">{t('dashboard.transfers_done')}</span>
-            <div className="p-3 bg-amber-500/10 text-amber-600 rounded-2xl">
+            <span className="text-xs font-bold text-text-muted group-hover:text-amber-600 transition-colors">{t('dashboard.transfers_done')}</span>
+            <div className="p-3 bg-amber-500/10 text-amber-600 rounded-2xl group-hover:bg-amber-500/20 group-hover:scale-110 transition-all">
               <ArrowLeftRight className="w-6 h-6" />
             </div>
           </div>
@@ -134,14 +143,17 @@ export default function Dashboard() {
             {stats?.summary?.total_transfers || 0}
           </div>
           <p className="text-xs text-text-muted mt-1">{t('dashboard.transfers_desc')}</p>
-        </div>
+        </Link>
 
         {/* Financial Highlights (Receipts & Exemptions) - Displayed only when Quranic track is enabled */}
         {isQuranEnabled && (
-          <div className="p-6 bg-surface-card border border-border rounded-3xl shadow-sm hover:shadow-md transition-shadow">
+          <Link 
+            to="/finance" 
+            className="p-6 bg-surface-card border border-border rounded-3xl shadow-sm hover:shadow-md hover:border-purple-500/30 hover:-translate-y-0.5 active:scale-[0.98] transition-all cursor-pointer group block"
+          >
             <div className="flex items-center justify-between mb-4">
-              <span className="text-xs font-bold text-text-muted">{t('dashboard.revenue_and_exemptions')}</span>
-              <div className="p-3 bg-purple-500/10 text-purple-600 rounded-2xl">
+              <span className="text-xs font-bold text-text-muted group-hover:text-purple-600 transition-colors">{t('dashboard.revenue_and_exemptions')}</span>
+              <div className="p-3 bg-purple-500/10 text-purple-600 rounded-2xl group-hover:bg-purple-500/20 group-hover:scale-110 transition-all">
                 <Wallet className="w-6 h-6" />
               </div>
             </div>
@@ -152,7 +164,7 @@ export default function Dashboard() {
               <Award className="w-3.5 h-3.5" />
               <span>{t('dashboard.exemptions_count', { count: stats?.finances?.total_exemptions || 0 })}</span>
             </div>
-          </div>
+          </Link>
         )}
 
       </div>

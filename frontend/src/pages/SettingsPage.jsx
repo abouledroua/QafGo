@@ -22,8 +22,10 @@ import {
   GraduationCap, 
   Trash2,
   FileText,
-  Globe
+  Globe,
+  ShieldCheck
 } from 'lucide-react';
+import UsersManagementTab from '../components/UsersManagementTab';
 
 export default function SettingsPage() {
   const { settings, loading, updateSettings, uploadAsset } = useSettings();
@@ -127,65 +129,61 @@ export default function SettingsPage() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={saving}
-          className="flex items-center gap-2 px-7 py-3 rounded-2xl bg-primary hover:bg-primary-hover text-white text-sm font-bold shadow-xl shadow-primary/25 disabled:opacity-50 transition-all self-start sm:self-auto"
-        >
-          <Save className="w-5 h-5" />
-          <span>{saving ? t('settings.saving_btn') : t('settings.save_all_btn')}</span>
-        </button>
+        {activeTab !== 'USERS' && (
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={saving}
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-7 py-3 rounded-2xl bg-primary hover:bg-primary-hover text-white text-sm font-bold shadow-xl shadow-primary/25 disabled:opacity-50 transition-all shrink-0"
+          >
+            <Save className="w-5 h-5" />
+            <span>{saving ? t('settings.saving_btn') : t('settings.save_all_btn')}</span>
+          </button>
+        )}
       </div>
 
-      {/* Tabs Navigation */}
-      <div className="flex items-center gap-2 border-b border-border overflow-x-auto pb-1">
-        <button
-          type="button"
-          onClick={() => setActiveTab('PROFILE')}
-          className={`flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 whitespace-nowrap transition-all ${
-            activeTab === 'PROFILE'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-text-muted hover:text-text-main'
-          }`}
-        >
-          <Building2 className="w-4 h-4" />
-          <span>{t('settings.tab_profile_label')}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('SYSTEM')}
-          className={`flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 whitespace-nowrap transition-all ${
-            activeTab === 'SYSTEM'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-text-muted hover:text-text-main'
-          }`}
-        >
-          <Sliders className="w-4 h-4" />
-          <span>{t('settings.tab_system_label')}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('TRACKS')}
-          className={`flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 whitespace-nowrap transition-all ${
-            activeTab === 'TRACKS'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-text-muted hover:text-text-main'
-          }`}
-        >
-          <ToggleRight className="w-4 h-4" />
-          <span>{t('settings.tab_tracks_label')}</span>
-        </button>
+      {/* Sections / Tabs Navigation: 2x2 grid on small screens, 4-col on md+ screens */}
+      <div className="p-1.5 bg-surface border border-border rounded-2xl sm:rounded-3xl shadow-sm">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5 sm:gap-2">
+          {[
+            { id: 'PROFILE', labelKey: 'tab_profile', icon: Building2 },
+            { id: 'SYSTEM', labelKey: 'tab_system', icon: Sliders },
+            { id: 'TRACKS', labelKey: 'tab_tracks', icon: ToggleRight },
+            { id: 'USERS', labelKey: 'tab_users', icon: ShieldCheck }
+          ].map((sec) => {
+            const Icon = sec.icon;
+            const isActive = activeTab === sec.id;
+            return (
+              <button
+                key={sec.id}
+                type="button"
+                onClick={() => setActiveTab(sec.id)}
+                className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl sm:rounded-2xl text-xs sm:text-sm font-black transition-all select-none ${
+                  isActive
+                    ? 'bg-primary text-white shadow-md shadow-primary/25'
+                    : 'text-text-muted hover:text-text-main hover:bg-surface-card bg-transparent'
+                }`}
+              >
+                <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-primary'}`} />
+                <span className="truncate">{t(`settings.${sec.labelKey}`)}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Form Content */}
-      <form onSubmit={handleSubmit} className="space-y-8">
+      {/* TAB 4: Users & Access Management */}
+      {activeTab === 'USERS' && (
+        <UsersManagementTab />
+      )}
 
-        {/* TAB 1: Institution Profile */}
-        {activeTab === 'PROFILE' && (
-          <div className="p-6 lg:p-8 bg-surface-card border border-border rounded-3xl shadow-sm space-y-8">
+      {/* Form Content for Settings Tabs (PROFILE, SYSTEM, TRACKS) */}
+      {activeTab !== 'USERS' && (
+        <form onSubmit={handleSubmit} className="space-y-8">
+
+          {/* TAB 1: Institution Profile */}
+          {activeTab === 'PROFILE' && (
+          <div className="p-4 sm:p-6 lg:p-8 bg-surface-card border border-border rounded-2xl sm:rounded-3xl shadow-sm space-y-6 sm:space-y-8">
             
             {/* General Institution Info */}
             <div className="space-y-4">
@@ -464,7 +462,7 @@ export default function SettingsPage() {
 
         {/* TAB 2: System & Operational Preferences */}
         {activeTab === 'SYSTEM' && (
-          <div className="p-6 lg:p-8 bg-surface-card border border-border rounded-3xl shadow-sm space-y-8">
+          <div className="p-4 sm:p-6 lg:p-8 bg-surface-card border border-border rounded-2xl sm:rounded-3xl shadow-sm space-y-6 sm:space-y-8">
             
             {/* Language Selector */}
             <div className="space-y-4">
@@ -494,7 +492,7 @@ export default function SettingsPage() {
                   </label>
                   <input
                     type="text"
-                    value={formData.currency_symbol || 'د.ج'}
+                    value={formData.currency_symbol || (isRtl ? 'د.ج' : 'DZD')}
                     onChange={(e) => handleChange('currency_symbol', e.target.value)}
                     className="w-full p-2.5 bg-surface-card border border-border rounded-xl text-sm font-bold text-text-main focus:outline-none"
                     placeholder={t('settings.currency_placeholder')}
@@ -591,7 +589,7 @@ export default function SettingsPage() {
 
         {/* TAB 3: Educational Tracks Visibility Toggles */}
         {activeTab === 'TRACKS' && (
-          <div className="p-6 lg:p-8 bg-surface-card border border-border rounded-3xl shadow-sm space-y-6">
+          <div className="p-4 sm:p-6 lg:p-8 bg-surface-card border border-border rounded-2xl sm:rounded-3xl shadow-sm space-y-5 sm:space-y-6">
             
             <div>
               <h3 className="text-lg font-bold text-text-main flex items-center gap-2">
@@ -713,16 +711,16 @@ export default function SettingsPage() {
           <button
             type="submit"
             disabled={saving}
-            className="flex items-center gap-2 px-8 py-3.5 rounded-2xl bg-primary hover:bg-primary-hover text-white text-sm font-black shadow-xl shadow-primary/25 disabled:opacity-50 transition-all"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3.5 rounded-2xl bg-primary hover:bg-primary-hover text-white text-sm font-black shadow-xl shadow-primary/25 disabled:opacity-50 transition-all"
           >
             <Save className="w-5 h-5" />
             <span>{saving ? t('settings.saving_btn') : t('settings.save_changes_btn')}</span>
           </button>
-        </div>
+          </div>
 
-      </form>
+        </form>
+      )}
 
     </div>
   );
 }
-
