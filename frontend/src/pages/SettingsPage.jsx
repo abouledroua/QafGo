@@ -23,7 +23,8 @@ import {
   Trash2,
   FileText,
   Globe,
-  ShieldCheck
+  ShieldCheck,
+  Users2
 } from 'lucide-react';
 import UsersManagementTab from '../components/UsersManagementTab';
 
@@ -538,6 +539,81 @@ export default function SettingsPage() {
                   </span>
                 </div>
 
+              </div>
+            </div>
+
+            {/* Group Gender Policy (Mixed vs Separated) */}
+            <div className="pt-6 border-t border-border space-y-4">
+              <div className="flex items-center gap-2">
+                <Users2 className="w-5 h-5 text-primary" />
+                <h3 className="text-lg font-bold text-text-main">
+                  {t('settings.group_gender_policy_title')}
+                </h3>
+              </div>
+              <p className="text-xs text-text-muted">
+                {t('settings.group_gender_policy_desc')}
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* MIXED option */}
+                <button
+                  type="button"
+                  onClick={() => handleChange('group_gender_policy', 'MIXED')}
+                  className={`p-5 rounded-2xl border text-start transition-all relative flex flex-col justify-between ${
+                    (formData.group_gender_policy || 'MIXED') === 'MIXED'
+                      ? 'border-primary bg-primary/10 ring-2 ring-primary/30 shadow-sm'
+                      : 'border-border bg-surface hover:border-primary/40'
+                  }`}
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-600 flex items-center justify-center font-bold text-sm">
+                          ⚧
+                        </div>
+                        <span className="text-sm font-bold text-text-main">
+                          {t('settings.group_gender_policy_mixed')}
+                        </span>
+                      </div>
+                      {(formData.group_gender_policy || 'MIXED') === 'MIXED' && (
+                        <CheckCircle2 className="w-5 h-5 text-primary" />
+                      )}
+                    </div>
+                    <p className="text-xs text-text-muted leading-relaxed">
+                      {t('settings.group_gender_policy_mixed_desc')}
+                    </p>
+                  </div>
+                </button>
+
+                {/* SEPARATED option */}
+                <button
+                  type="button"
+                  onClick={() => handleChange('group_gender_policy', 'SEPARATED')}
+                  className={`p-5 rounded-2xl border text-start transition-all relative flex flex-col justify-between ${
+                    formData.group_gender_policy === 'SEPARATED'
+                      ? 'border-primary bg-primary/10 ring-2 ring-primary/30 shadow-sm'
+                      : 'border-border bg-surface hover:border-primary/40'
+                  }`}
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-9 h-9 rounded-xl bg-indigo-500/10 text-indigo-600 flex items-center justify-center font-bold text-sm">
+                          ⚤
+                        </div>
+                        <span className="text-sm font-bold text-text-main">
+                          {t('settings.group_gender_policy_separated')}
+                        </span>
+                      </div>
+                      {formData.group_gender_policy === 'SEPARATED' && (
+                        <CheckCircle2 className="w-5 h-5 text-primary" />
+                      )}
+                    </div>
+                    <p className="text-xs text-text-muted leading-relaxed">
+                      {t('settings.group_gender_policy_separated_desc')}
+                    </p>
+                  </div>
+                </button>
               </div>
             </div>
 

@@ -112,12 +112,26 @@ export default function StudentProfilePage() {
   const displayTimeline = useMemo(() => {
     const timeline = dossier?.timeline;
     if (!timeline) return [];
-    return timeline.filter(item => {
-      if (item.type === 'TAHFIZ_EVALUATION' && !isQuranEnabled) return false;
-      if (item.type === 'PRESCHOOL_EVALUATION' && !isPreschoolEnabled) return false;
-      if (item.type === 'TUTORING_GRADE' && !isTutoringEnabled) return false;
-      return true;
-    });
+    return [...timeline]
+      .filter(item => {
+        if (item.type === 'TAHFIZ_EVALUATION' && !isQuranEnabled) return false;
+        if (item.type === 'PRESCHOOL_EVALUATION' && !isPreschoolEnabled) return false;
+        if (item.type === 'TUTORING_GRADE' && !isTutoringEnabled) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const timeDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
+        if (timeDiff !== 0) return timeDiff;
+        const typePriority = {
+          'TUTORING_GRADE': 5,
+          'PRESCHOOL_EVALUATION': 5,
+          'TAHFIZ_EVALUATION': 5,
+          'TRANSFER_EVENT': 4,
+          'TRANSFER_OUT': 3,
+          'ENROLLMENT': 1
+        };
+        return (typePriority[b.type] || 0) - (typePriority[a.type] || 0);
+      });
   }, [dossier?.timeline, isQuranEnabled, isPreschoolEnabled, isTutoringEnabled]);
 
   const enrollmentsCount = dossier?.enrollments?.length || 0;
@@ -498,9 +512,16 @@ export default function StudentProfilePage() {
                             {t('student_profile.academic_year_label', { year: item.year })}
                           </span>
                         </div>
-                        <span className="text-xs font-mono text-text-muted">
-                          {DateTimeFormatter.formatDate(item.date)}
-                        </span>
+                        <div className="flex items-center gap-2.5 text-xs font-mono text-text-muted flex-wrap">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3.5 h-3.5 text-text-muted/80" />
+                            {DateTimeFormatter.formatDate(item.date)}
+                          </span>
+                          <span className="flex items-center gap-1 text-primary font-bold bg-primary/10 px-2 py-0.5 rounded-md">
+                            <Clock className="w-3 h-3 text-primary" />
+                            {DateTimeFormatter.formatTime(item.date)}
+                          </span>
+                        </div>
                       </div>
 
                       <h4 className="text-base font-extrabold text-text-main">
@@ -1034,6 +1055,7 @@ export default function StudentProfilePage() {
           onClose={() => setTransferModalOpen(false)}
           student={student}
           currentEnrollment={selectedEnrollmentForTransfer}
+          sourceGroupId={selectedEnrollmentForTransfer?.group_id}
           onSuccess={fetchDossier}
         />
       )}

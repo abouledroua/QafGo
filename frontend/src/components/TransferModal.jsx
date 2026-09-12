@@ -1,12 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { ArrowLeftRight, X, AlertCircle, CheckCircle2 } from 'lucide-react';
 import api from '../services/api';
 import { useNotification } from '../context/NotificationContext';
 import { useLanguage } from '../context/LanguageContext';
+import { useAcademicYear } from '../context/AcademicYearContext';
+import { useSettings } from '../context/SettingsContext';
 
-export default function TransferModal({ isOpen, onClose, student, currentEnrollment, onSuccess }) {
+export default function TransferModal({ 
+  isOpen, 
+  onClose, 
+  student, 
+  currentEnrollment, 
+  sourceGroupId: propSourceGroupId,
+  onSuccess 
+}) {
   const { showNotification } = useNotification();
   const { t, isRtl } = useLanguage();
+  const { selectedYearId } = useAcademicYear();
+  const { settings } = useSettings();
 
   const [availableGroups, setAvailableGroups] = useState([]);
   const [targetGroupId, setTargetGroupId] = useState('');
@@ -15,6 +26,62 @@ export default function TransferModal({ isOpen, onClose, student, currentEnrollm
   const [discountValue, setDiscountValue] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [loadingGroups, setLoadingGroups] = useState(false);
+
+  // Compute effective source group ID and name from all possible sources
+  const effectiveSourceGroupId = useMemo(() => {
+    if (propSourceGroupId !== undefined && propSourceGroupId !== null && propSourceGroupId !== '') {
+      return propSourceGroupId;
+    }
+    if (currentEnrollment?.group_id !== undefined && currentEnrollment?.group_id !== null && currentEnrollment?.group_id !== '') {
+      return currentEnrollment.group_id;
+    }
+    if (currentEnrollment?.from_group_id !== undefined && currentEnrollment?.from_group_id !== null && currentEnrollment?.from_group_id !== '') {
+      return currentEnrollment.from_group_id;
+    }
+    if (currentEnrollment?.groupId !== undefined && currentEnrollment?.groupId !== null && currentEnrollment?.groupId !== '') {
+      return currentEnrollment.groupId;
+    }
+    if (student?.group_id !== undefined && student?.group_id !== null && student?.group_id !== '') {
+      return student.group_id;
+    }
+    return null;
+  }, [propSourceGroupId, currentEnrollment, student]);
+
+  const effectiveSourceGroupName = useMemo(() => {
+    return (currentEnrollment?.group_name || currentEnrollment?.name || '').trim().toLowerCase();
+  }, [currentEnrollment]);
+
+  // Robust check to determine whether a group is the source group
+  const isSourceGroup = useCallback((g) => {
+    if (!g) return false;
+    const gId = g.id !== undefined && g.id !== null ? String(g.id).trim() : '';
+
+    if (effectiveSourceGroupId !== null && effectiveSourceGroupId !== undefined && effectiveSourceGroupId !== '') {
+      const srcId = String(effectiveSourceGroupId).trim();
+      if (gId === srcId || (Number(g.id) && Number(effectiveSourceGroupId) && Number(g.id) === Number(effectiveSourceGroupId))) {
+        return true;
+      }
+    }
+
+    if (effectiveSourceGroupName && g.name) {
+      if (g.name.trim().toLowerCase() === effectiveSourceGroupName) {
+        return true;
+      }
+    }
+
+    return false;
+  }, [effectiveSourceGroupId, effectiveSourceGroupName]);
+
+  // Filtered destination groups (strictly excludes source group and enforces gender match when policy is SEPARATED)
+  const destinationGroups = useMemo(() => {
+    return availableGroups.filter(g => {
+      if (isSourceGroup(g)) return false;
+      if (settings?.group_gender_policy === 'SEPARATED' && student?.gender && g.gender && g.gender !== 'ALL') {
+        return g.gender === student.gender;
+      }
+      return true;
+    });
+  }, [availableGroups, isSourceGroup, settings?.group_gender_policy, student?.gender]);
 
   useEffect(() => {
     if (isOpen && currentEnrollment) {
@@ -27,13 +94,20 @@ export default function TransferModal({ isOpen, onClose, student, currentEnrollm
       const fetchGroups = async () => {
         try {
           setLoadingGroups(true);
-          const res = await api.get(`/groups?academic_year_id=${currentEnrollment.academic_year_id}`);
-          if (res.success) {
-            // Filter out current group
-            const filtered = res.data.filter(g => g.id !== currentEnrollment.group_id);
+          const academicYearId = currentEnrollment.academic_year_id || selectedYearId;
+          const url = academicYearId 
+            ? `/groups?academic_year_id=${academicYearId}` 
+            : '/groups';
+          
+          const res = await api.get(url);
+          if (res.success && Array.isArray(res.data)) {
+            // Filter out current group by ID (string & number) and name
+            const filtered = res.data.filter(g => !isSourceGroup(g));
             setAvailableGroups(filtered);
             if (filtered.length > 0) {
-              setTargetGroupId(filtered[0].id);
+              setTargetGroupId(String(filtered[0].id));
+            } else {
+              setTargetGroupId('');
             }
           }
         } catch (err) {
@@ -45,13 +119,29 @@ export default function TransferModal({ isOpen, onClose, student, currentEnrollm
 
       fetchGroups();
     }
-  }, [isOpen, currentEnrollment, showNotification, t]);
+  }, [isOpen, currentEnrollment, selectedYearId, isSourceGroup, showNotification, t]);
+
+  // Keep targetGroupId synced with destinationGroups
+  useEffect(() => {
+    if (destinationGroups.length > 0) {
+      const exists = destinationGroups.some(g => String(g.id) === String(targetGroupId));
+      if (!exists) {
+        setTargetGroupId(String(destinationGroups[0].id));
+      }
+    } else {
+      setTargetGroupId('');
+    }
+  }, [destinationGroups, targetGroupId]);
 
   if (!isOpen || !currentEnrollment) return null;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!targetGroupId || !reason.trim()) {
+    if (!targetGroupId || isSourceGroup({ id: targetGroupId, name: selectedTargetGroup?.name })) {
+      showNotification(t('transfers.same_group_error', t('transfers.select_warning')), 'warning');
+      return;
+    }
+    if (!reason.trim()) {
       showNotification(t('transfers.select_warning'), 'warning');
       return;
     }
@@ -59,9 +149,9 @@ export default function TransferModal({ isOpen, onClose, student, currentEnrollm
     try {
       setSubmitting(true);
       const res = await api.post('/transfers', {
-        student_id: student.id,
-        academic_year_id: currentEnrollment.academic_year_id,
-        current_enrollment_id: currentEnrollment.id,
+        student_id: student.id || student.student_id,
+        academic_year_id: currentEnrollment.academic_year_id || selectedYearId,
+        current_enrollment_id: currentEnrollment.id || currentEnrollment.enrollment_id,
         target_group_id: parseInt(targetGroupId, 10),
         reason: reason.trim(),
         discount_type: discountType,
@@ -80,7 +170,7 @@ export default function TransferModal({ isOpen, onClose, student, currentEnrollm
     }
   };
 
-  const selectedTargetGroup = availableGroups.find(g => g.id == targetGroupId);
+  const selectedTargetGroup = destinationGroups.find(g => String(g.id) === String(targetGroupId));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
@@ -116,16 +206,18 @@ export default function TransferModal({ isOpen, onClose, student, currentEnrollm
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-2xl bg-surface border border-border/80">
             <div>
               <span className="text-xs text-text-muted block">{t('transfers.student_label')}</span>
-              <span className="text-base font-extrabold text-text-main">{student.full_name}</span>
-              <span className="text-xs font-mono text-primary block">{student.reg_no}</span>
+              <span className="text-base font-extrabold text-text-main">
+                {student?.full_name || student?.student_name || ''}
+              </span>
+              <span className="text-xs font-mono text-primary block">{student?.reg_no || ''}</span>
             </div>
             <div>
               <span className="text-xs text-text-muted block">{t('transfers.current_group')}</span>
               <span className="text-base font-extrabold text-amber-600 dark:text-amber-400">
-                {currentEnrollment.group_name}
+                {currentEnrollment?.group_name || currentEnrollment?.name || ''}
               </span>
               <span className="text-xs text-text-muted block">
-                {t('transfers.enrolled_at')} {currentEnrollment.enrolled_at?.split('T')[0]}
+                {t('transfers.enrolled_at')} {currentEnrollment?.enrolled_at ? currentEnrollment.enrolled_at.split('T')[0] : ''}
               </span>
             </div>
           </div>
@@ -139,7 +231,7 @@ export default function TransferModal({ isOpen, onClose, student, currentEnrollm
               <div className="p-4 text-center text-sm text-text-muted bg-surface rounded-xl">
                 {t('transfers.loading_groups')}
               </div>
-            ) : availableGroups.length === 0 ? (
+            ) : destinationGroups.length === 0 ? (
               <div className="p-4 text-sm text-amber-600 bg-amber-500/10 rounded-xl border border-amber-500/20">
                 {t('transfers.no_groups_available')}
               </div>
@@ -150,7 +242,7 @@ export default function TransferModal({ isOpen, onClose, student, currentEnrollm
                 className="w-full p-3.5 bg-surface border border-border rounded-xl text-sm font-bold text-text-main focus:ring-2 focus:ring-primary focus:outline-none"
                 required
               >
-                {availableGroups.map((g) => (
+                {destinationGroups.map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.name} ({g.track_type === 'HALAQA' ? t('transfers.track_halaqa') : g.track_type === 'PRESCHOOL' ? t('transfers.track_preschool') : t('transfers.track_tutoring')}) - {g.is_free ? t('transfers.free') : `${g.monthly_fee} ${t('transfers.currency')}`}
                   </option>
@@ -236,7 +328,7 @@ export default function TransferModal({ isOpen, onClose, student, currentEnrollm
             </button>
             <button
               type="submit"
-              disabled={submitting || availableGroups.length === 0}
+              disabled={submitting || destinationGroups.length === 0}
               className="flex items-center gap-2 px-6 py-2.5 text-sm font-bold text-white bg-primary hover:bg-primary-hover disabled:opacity-50 rounded-xl shadow-lg shadow-primary/25 transition-all"
             >
               <ArrowLeftRight className="w-4 h-4" />

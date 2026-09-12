@@ -19,9 +19,23 @@ export function LanguageProvider({ children }) {
     }
   }, []);
 
-  const t = useCallback((key, params) => {
-    return translate(key, lang, params);
-  }, [lang]);
+  const [currency, setCurrencyState] = useState(() => {
+    return (typeof window !== 'undefined' && localStorage.getItem('qafgo_currency_symbol')) || (lang === 'ar' ? 'د.ج' : 'DZD');
+  });
+
+  useEffect(() => {
+    const handleCurrencyUpdate = (e) => {
+      if (e.detail) {
+        setCurrencyState(e.detail);
+      }
+    };
+    window.addEventListener('currency:updated', handleCurrencyUpdate);
+    return () => window.removeEventListener('currency:updated', handleCurrencyUpdate);
+  }, []);
+
+  const t = useCallback((key, paramsOrDefault, extraParams) => {
+    return translate(key, lang, paramsOrDefault, extraParams);
+  }, [lang, currency]);
 
   useEffect(() => {
     document.documentElement.dir = dir;
@@ -45,6 +59,7 @@ export function LanguageProvider({ children }) {
       t,
       dir,
       isRtl,
+      currency,
       supportedLanguages
     }}>
       {children}

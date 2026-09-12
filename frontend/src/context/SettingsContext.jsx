@@ -3,6 +3,7 @@ import api from '../services/api';
 import { useNotification } from './NotificationContext';
 import { useTheme } from './ThemeContext';
 import { useLanguage } from './LanguageContext';
+import { setRuntimeCurrency } from '../i18n/index.js';
 
 const SettingsContext = createContext();
 
@@ -24,7 +25,7 @@ export const SettingsProvider = ({ children }) => {
     stamp_signature_url: null,
     receipt_header_text: 'الجمهورية الجزائرية الديمقراطية الشعبية - وزارة الشؤون الدينية والأوقاف',
     receipt_footer_notes: 'يرجى الاحتفاظ بهذا الوصل كسند إثبات رسمي. الاشتراكات غير قابلة للاسترداد بعد انقضاء الشهر المرجعي.',
-    currency_symbol: 'د.ج',
+    currency_symbol: (typeof window !== 'undefined' && localStorage.getItem('qafgo_currency_symbol')) || 'د.ج',
     default_language: 'ar',
     default_theme: 'brown-light',
     auto_backup_enabled: false,
@@ -43,6 +44,12 @@ export const SettingsProvider = ({ children }) => {
       const res = await api.get('/settings');
       if (res.success && res.data) {
         setSettings(res.data);
+        if (res.data.currency_symbol) {
+          setRuntimeCurrency(res.data.currency_symbol);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('currency:updated', { detail: res.data.currency_symbol }));
+          }
+        }
       }
     } catch (err) {
       console.error('Failed to load school settings:', err);
@@ -60,6 +67,13 @@ export const SettingsProvider = ({ children }) => {
       const res = await api.put('/settings', newSettingsData);
       if (res.success) {
         setSettings(res.data);
+        const sym = newSettingsData.currency_symbol || res.data?.currency_symbol;
+        if (sym) {
+          setRuntimeCurrency(sym);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('currency:updated', { detail: sym }));
+          }
+        }
         if (newSettingsData.default_theme) {
           setTheme(newSettingsData.default_theme);
         }
@@ -94,9 +108,12 @@ export const SettingsProvider = ({ children }) => {
     }
   };
 
+  const currentCurrency = settings?.currency_symbol || (typeof window !== 'undefined' ? localStorage.getItem('qafgo_currency_symbol') : 'د.ج') || 'د.ج';
+
   return (
     <SettingsContext.Provider value={{
       settings,
+      currency: currentCurrency,
       loading,
       updateSettings,
       uploadAsset,

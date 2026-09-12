@@ -3,6 +3,7 @@ import api from '../services/api';
 import { useLanguage } from '../context/LanguageContext';
 import { useNotification } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
+import { useSettings } from '../context/SettingsContext';
 import { 
   Users, 
   UserPlus, 
@@ -49,6 +50,7 @@ export default function UsersManagementTab() {
   const { t, isRtl } = useLanguage();
   const { showNotification } = useNotification();
   const { user: authUser } = useAuth();
+  const { settings } = useSettings();
 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -64,6 +66,7 @@ export default function UsersManagementTab() {
     full_name: '',
     password: '',
     role: 'SUPERVISOR',
+    gender_access: 'ALL',
     is_active: true,
     permissions: ['students', 'tracks', 'timetable', 'teachers']
   });
@@ -158,6 +161,7 @@ export default function UsersManagementTab() {
       full_name: '',
       password: '',
       role: 'SUPERVISOR',
+      gender_access: 'ALL',
       is_active: true,
       permissions: ['dashboard', 'students', 'transfers', 'tracks', 'timetable', 'teachers']
     });
@@ -172,6 +176,7 @@ export default function UsersManagementTab() {
       full_name: targetUser.full_name,
       password: '',
       role: targetUser.role || 'SUPERVISOR',
+      gender_access: targetUser.gender_access || 'ALL',
       is_active: Boolean(targetUser.is_active),
       permissions: Array.isArray(targetUser.permissions) ? targetUser.permissions : []
     });
@@ -235,6 +240,7 @@ export default function UsersManagementTab() {
         const payload = {
           full_name: userForm.full_name,
           role: userForm.role,
+          gender_access: userForm.gender_access || 'ALL',
           is_active: userForm.is_active,
           permissions: userForm.role === 'ADMIN' ? ALL_PERMISSION_KEYS : userForm.permissions
         };
@@ -255,6 +261,7 @@ export default function UsersManagementTab() {
           password: userForm.password.trim(),
           full_name: userForm.full_name.trim(),
           role: userForm.role,
+          gender_access: userForm.gender_access || 'ALL',
           is_active: userForm.is_active,
           permissions: userForm.role === 'ADMIN' ? ALL_PERMISSION_KEYS : userForm.permissions
         };
@@ -386,6 +393,31 @@ export default function UsersManagementTab() {
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-purple-500/10 text-purple-600 border border-purple-500/20">
             <ShieldAlert className="w-3.5 h-3.5" />
             <span>{t('users_management.role_custom')}</span>
+          </span>
+        );
+    }
+  };
+
+  const getGenderAccessBadge = (genderAccess) => {
+    switch (genderAccess) {
+      case 'MALE':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-500/10 text-blue-600 border border-blue-500/20">
+            <span>♂</span>
+            <span>{t('users_management.gender_access_badge_male')}</span>
+          </span>
+        );
+      case 'FEMALE':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-pink-500/10 text-pink-600 border border-pink-500/20">
+            <span>♀</span>
+            <span>{t('users_management.gender_access_badge_female')}</span>
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-gray-500/10 text-gray-600 border border-gray-500/20">
+            <span>{t('users_management.gender_access_badge_all')}</span>
           </span>
         );
     }
@@ -563,6 +595,7 @@ export default function UsersManagementTab() {
                   {/* Middle row: Role & Access Chip & Active Chip & Created Date */}
                   <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/60 text-xs">
                     {getRoleBadge(u.role)}
+                    {settings?.group_gender_policy === 'SEPARATED' && getGenderAccessBadge(u.gender_access || 'ALL')}
 
                     {/* Access Chip */}
                     {isFullAccess ? (
@@ -648,6 +681,9 @@ export default function UsersManagementTab() {
               <tr className="bg-surface/60 border-b border-border text-text-muted text-xs font-bold">
                 <th className="py-3.5 px-4 text-start">{t('users_management.col_user')}</th>
                 <th className="py-3.5 px-4 text-start">{t('users_management.col_role')}</th>
+                {settings?.group_gender_policy === 'SEPARATED' && (
+                  <th className="py-3.5 px-4 text-start">{t('users_management.col_gender_access')}</th>
+                )}
                 <th className="py-3.5 px-4 text-start">{t('users_management.col_permissions')}</th>
                 <th className="py-3.5 px-4 text-center">{t('users_management.col_status')}</th>
                 <th className="py-3.5 px-4 text-start">{t('users_management.col_created_at')}</th>
@@ -657,14 +693,14 @@ export default function UsersManagementTab() {
             <tbody className="divide-y divide-border text-sm font-medium">
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="py-12 text-center text-text-muted font-bold">
+                  <td colSpan={settings?.group_gender_policy === 'SEPARATED' ? "7" : "6"} className="py-12 text-center text-text-muted font-bold">
                     <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3" />
                     <span>{t('common.loading')}</span>
                   </td>
                 </tr>
               ) : filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="py-12 text-center text-text-muted font-bold">
+                  <td colSpan={settings?.group_gender_policy === 'SEPARATED' ? "7" : "6"} className="py-12 text-center text-text-muted font-bold">
                     <Users className="w-12 h-12 mx-auto text-text-muted/40 mb-3" />
                     <span>{t('users_management.no_users_found')}</span>
                   </td>
@@ -707,6 +743,13 @@ export default function UsersManagementTab() {
                       <td className="py-3.5 px-4">
                         {getRoleBadge(u.role)}
                       </td>
+
+                      {/* Gender Access Badge */}
+                      {settings?.group_gender_policy === 'SEPARATED' && (
+                        <td className="py-3.5 px-4">
+                          {getGenderAccessBadge(u.gender_access || 'ALL')}
+                        </td>
+                      )}
 
                       {/* Permissions */}
                       <td className="py-3.5 px-4">
@@ -951,6 +994,61 @@ export default function UsersManagementTab() {
                     </span>
                   </div>
                 </div>
+
+                {/* Gender Access Permission (Visible when policy is SEPARATED) */}
+                {settings?.group_gender_policy === 'SEPARATED' && (
+                  <div className="sm:col-span-2 pt-2 border-t border-border/60">
+                    <label className="block text-xs font-bold text-text-main mb-1">
+                      {t('users_management.gender_access_label')}
+                    </label>
+                    <p className="text-[11px] text-text-muted mb-3">
+                      {t('users_management.gender_access_desc')}
+                    </p>
+                    <div className="grid grid-cols-3 gap-3">
+                      {/* ALL */}
+                      <button
+                        type="button"
+                        onClick={() => setUserForm(prev => ({ ...prev, gender_access: 'ALL' }))}
+                        className={`p-3 rounded-2xl border text-center transition-all flex flex-col items-center gap-1 ${
+                          (userForm.gender_access || 'ALL') === 'ALL'
+                            ? 'bg-primary/10 border-primary text-primary font-bold shadow-xs'
+                            : 'bg-surface border-border text-text-muted hover:border-primary/40'
+                        }`}
+                      >
+                        <span className="text-base font-bold">⚧</span>
+                        <span className="text-xs">{t('users_management.gender_access_all')}</span>
+                      </button>
+
+                      {/* MALE */}
+                      <button
+                        type="button"
+                        onClick={() => setUserForm(prev => ({ ...prev, gender_access: 'MALE' }))}
+                        className={`p-3 rounded-2xl border text-center transition-all flex flex-col items-center gap-1 ${
+                          userForm.gender_access === 'MALE'
+                            ? 'bg-blue-500/10 border-blue-500 text-blue-600 font-bold shadow-xs'
+                            : 'bg-surface border-border text-text-muted hover:border-blue-500/40'
+                        }`}
+                      >
+                        <span className="text-base font-bold">♂</span>
+                        <span className="text-xs">{t('users_management.gender_access_male')}</span>
+                      </button>
+
+                      {/* FEMALE */}
+                      <button
+                        type="button"
+                        onClick={() => setUserForm(prev => ({ ...prev, gender_access: 'FEMALE' }))}
+                        className={`p-3 rounded-2xl border text-center transition-all flex flex-col items-center gap-1 ${
+                          userForm.gender_access === 'FEMALE'
+                            ? 'bg-pink-500/10 border-pink-500 text-pink-600 font-bold shadow-xs'
+                            : 'bg-surface border-border text-text-muted hover:border-pink-500/40'
+                        }`}
+                      >
+                        <span className="text-base font-bold">♀</span>
+                        <span className="text-xs">{t('users_management.gender_access_female')}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
 
               </div>
 

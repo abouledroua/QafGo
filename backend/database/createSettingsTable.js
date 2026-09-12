@@ -33,6 +33,9 @@ async function setupSettingsTable() {
       enable_preschool_track BOOLEAN DEFAULT TRUE,
       enable_tutoring_track BOOLEAN DEFAULT TRUE,
       
+      -- Operational Policies
+      group_gender_policy ENUM('MIXED', 'SEPARATED') NOT NULL DEFAULT 'MIXED',
+      
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);

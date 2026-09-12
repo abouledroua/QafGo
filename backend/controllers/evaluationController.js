@@ -21,9 +21,12 @@ export const logTahfizSession = async (req, res) => {
       return res.status(400).json({ success: false, message: req.t('bad_request') });
     }
 
+    const userId = req.user?.id || null;
+    const deviceId = req.deviceId || null;
+
     const [result] = await pool.query(`
-      INSERT INTO tahfiz_logs (enrollment_id, date, type, surah_from, ayah_from, surah_to, ayah_to, hizb_from, hizb_to, grade, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO tahfiz_logs (enrollment_id, date, type, surah_from, ayah_from, surah_to, ayah_to, hizb_from, hizb_to, grade, notes, user_id, device_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       enrollment_id,
       date,
@@ -35,7 +38,9 @@ export const logTahfizSession = async (req, res) => {
       hizb_from || null,
       hizb_to || null,
       grade,
-      notes || null
+      notes || null,
+      userId,
+      deviceId
     ]);
 
     return res.status(201).json({
@@ -78,16 +83,21 @@ export const logPreschoolSkill = async (req, res) => {
       return res.status(400).json({ success: false, message: req.t('bad_request') });
     }
 
+    const userId = req.user?.id || null;
+    const deviceId = req.deviceId || null;
+
     const [result] = await pool.query(`
-      INSERT INTO preschool_logs (enrollment_id, date, skill_category, activity_title, score_rating, behavior_note)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO preschool_logs (enrollment_id, date, skill_category, activity_title, score_rating, behavior_note, user_id, device_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       enrollment_id,
       date,
       skill_category,
       activity_title || null,
       score_rating,
-      behavior_note || null
+      behavior_note || null,
+      userId,
+      deviceId
     ]);
 
     return res.status(201).json({
@@ -130,16 +140,21 @@ export const logTutoringGrade = async (req, res) => {
       return res.status(400).json({ success: false, message: req.t('bad_request') });
     }
 
+    const userId = req.user?.id || null;
+    const deviceId = req.deviceId || null;
+
     const [result] = await pool.query(`
-      INSERT INTO tutoring_grades (enrollment_id, exam_title, score, max_score, exam_date, teacher_notes)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO tutoring_grades (enrollment_id, exam_title, score, max_score, exam_date, teacher_notes, user_id, device_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       enrollment_id,
       exam_title,
       score,
       max_score,
       exam_date,
-      teacher_notes || null
+      teacher_notes || null,
+      userId,
+      deviceId
     ]);
 
     return res.status(201).json({

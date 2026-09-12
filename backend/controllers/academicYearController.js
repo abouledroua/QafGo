@@ -150,8 +150,8 @@ export const rolloverAcademicYear = async (req, res) => {
           targetGroupId = existing[0].id;
         } else {
           const [result] = await connection.query(`
-            INSERT INTO groups (academic_year_id, name, track_type, subject_name, teacher_id, room, schedule, is_free, monthly_fee)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO groups (academic_year_id, name, track_type, subject_name, teacher_id, room, schedule, is_free, monthly_fee, month_calculation_type, package_quota)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `, [
             target_year_id,
             group.name,
@@ -161,7 +161,9 @@ export const rolloverAcademicYear = async (req, res) => {
             group.room,
             group.schedule,
             group.is_free,
-            group.monthly_fee
+            group.monthly_fee,
+            group.month_calculation_type || 'CALENDAR_MONTH',
+            group.package_quota || null
           ]);
           targetGroupId = result.insertId;
           clonedGroupsCount++;

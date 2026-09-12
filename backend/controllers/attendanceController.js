@@ -1,4 +1,5 @@
 import pool from '../config/db.js';
+import { logActivity } from '../utils/auditLogger.js';
 
 export const getGroupAttendanceByDate = async (req, res) => {
   try {
@@ -62,6 +63,13 @@ export const saveBulkAttendance = async (req, res) => {
     }
 
     await connection.commit();
+
+    logActivity(req, {
+      action_type: 'ATTENDANCE',
+      data_type: 'ATTENDANCE',
+      details: `تسجيل حضور وغياب الطلبة ليوم ${date} (${records.length} طالب)`
+    });
+
     return res.json({ success: true, message: req.t('attendance_saved_success') });
   } catch (error) {
     await connection.rollback();
@@ -162,21 +170,38 @@ export const saveTeacherAttendance = async (req, res) => {
       ? parseInt(substitute_teacher_id, 10)
       : null;
 
+    const userId = req.user?.id || null;
+    const deviceId = req.deviceId || null;
+
     await pool.query(`
-      INSERT INTO teacher_attendance (teacher_id, group_id, date, status, substitute_teacher_id, notes)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO teacher_attendance (teacher_id, group_id, date, status, substitute_teacher_id, notes, user_id, device_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         status = VALUES(status),
         substitute_teacher_id = VALUES(substitute_teacher_id),
-        notes = VALUES(notes)
+        notes = VALUES(notes),
+        user_id = VALUES(user_id),
+        device_id = VALUES(device_id)
     `, [
       teacher_id,
       group_id,
       date,
       status || 'PRESENT',
       subId,
-      notes ? notes.trim() : null
+      notes ? notes.trim() : null,
+      userId,
+      deviceId
     ]);
+
+    const [tName] = await pool.query('SELECT full_name FROM teachers WHERE id = ?', [teacher_id]);
+    const teacherName = tName?.[0]?.full_name || '';
+    logActivity(req, {
+      action_type: 'ATTENDANCE',
+      data_type: 'TEACHER_ATTENDANCE',
+      entity_id: teacher_id,
+      entity_name: teacherName,
+      details: `تسجيل حضور الأستاذ/الشيخ "${teacherName}" ليوم ${date}: الحالة (${status || 'PRESENT'})`
+    });
 
     // Return the updated record
     const [saved] = await pool.query(`

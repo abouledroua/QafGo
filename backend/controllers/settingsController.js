@@ -1,4 +1,5 @@
 import pool from '../config/db.js';
+import { logActivity } from '../utils/auditLogger.js';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -75,11 +76,28 @@ const normalizeSettings = (s) => {
   if (!s) return s;
   return {
     ...s,
+    group_gender_policy: s.group_gender_policy === 'SEPARATED' ? 'SEPARATED' : 'MIXED',
     enable_quran_track: toBool(s.enable_quran_track),
     enable_preschool_track: toBool(s.enable_preschool_track),
     enable_tutoring_track: toBool(s.enable_tutoring_track),
     auto_backup_enabled: toBool(s.auto_backup_enabled)
   };
+};
+
+export const getGroupGenderPolicy = async () => {
+  try {
+    if (cachedSettings && cachedSettings.group_gender_policy) {
+      return cachedSettings.group_gender_policy;
+    }
+    const [rows] = await pool.query('SELECT group_gender_policy FROM school_settings WHERE id = 1');
+    if (rows.length > 0 && rows[0].group_gender_policy) {
+      return rows[0].group_gender_policy === 'SEPARATED' ? 'SEPARATED' : 'MIXED';
+    }
+    return 'MIXED';
+  } catch (err) {
+    console.error('getGroupGenderPolicy error:', err);
+    return 'MIXED';
+  }
 };
 
 export const ensureDefaultSettingsRow = async () => {
@@ -108,9 +126,19 @@ export const ensureDefaultSettingsRow = async () => {
         enable_quran_track BOOLEAN DEFAULT TRUE,
         enable_preschool_track BOOLEAN DEFAULT TRUE,
         enable_tutoring_track BOOLEAN DEFAULT TRUE,
+        group_gender_policy ENUM('MIXED', 'SEPARATED') NOT NULL DEFAULT 'MIXED',
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    try {
+      const [colGender] = await pool.query(`SHOW COLUMNS FROM school_settings LIKE 'group_gender_policy'`);
+      if (colGender.length === 0) {
+        await pool.query(`ALTER TABLE school_settings ADD COLUMN group_gender_policy ENUM('MIXED', 'SEPARATED') NOT NULL DEFAULT 'MIXED'`);
+      }
+    } catch (e) {
+      console.warn('group_gender_policy column check:', e.message);
+    }
 
     const [rows] = await pool.query('SELECT * FROM school_settings WHERE id = 1');
     if (rows.length === 0) {
@@ -134,7 +162,8 @@ export const ensureDefaultSettingsRow = async () => {
           default_max_absences_warning,
           enable_quran_track,
           enable_preschool_track,
-          enable_tutoring_track
+          enable_tutoring_track,
+          group_gender_policy
         ) VALUES (
           1,
           'المدرسة القرآنية والتربوية النموذجية',
@@ -153,7 +182,8 @@ export const ensureDefaultSettingsRow = async () => {
           3,
           1,
           1,
-          1
+          1,
+          'MIXED'
         )
       `);
       console.log('Successfully inserted initial row into school_settings.');
@@ -210,12 +240,15 @@ export const updateSettings = async (req, res) => {
       default_max_absences_warning,
       enable_quran_track,
       enable_preschool_track,
-      enable_tutoring_track
+      enable_tutoring_track,
+      group_gender_policy
     } = req.body;
 
     if (!school_name) {
       return res.status(400).json({ success: false, message: req.t('bad_request') });
     }
+
+    const validatedGenderPolicy = group_gender_policy === 'SEPARATED' ? 'SEPARATED' : 'MIXED';
 
     await pool.query(`
       UPDATE school_settings SET
@@ -239,7 +272,8 @@ export const updateSettings = async (req, res) => {
         default_max_absences_warning = ?,
         enable_quran_track = ?,
         enable_preschool_track = ?,
-        enable_tutoring_track = ?
+        enable_tutoring_track = ?,
+        group_gender_policy = ?
       WHERE id = 1
     `, [
       school_name,
@@ -262,12 +296,21 @@ export const updateSettings = async (req, res) => {
       parseInt(default_max_absences_warning || 3, 10),
       toBool(enable_quran_track) ? 1 : 0,
       toBool(enable_preschool_track) ? 1 : 0,
-      toBool(enable_tutoring_track) ? 1 : 0
+      toBool(enable_tutoring_track) ? 1 : 0,
+      validatedGenderPolicy
     ]);
 
     // Refresh cache
     const [updated] = await pool.query('SELECT * FROM school_settings WHERE id = 1');
     cachedSettings = normalizeSettings(updated[0]);
+
+    logActivity(req, {
+      action_type: 'UPDATE',
+      data_type: 'SETTINGS',
+      entity_id: 1,
+      entity_name: school_name,
+      details: `تحديث إعدادات المنصة والمؤسسة: "${school_name}"`
+    });
 
     return res.json({
       success: true,

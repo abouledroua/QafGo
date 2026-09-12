@@ -45,6 +45,11 @@ export const translations = {
     student_unenrolled_success: 'تم إلغاء تسجيل الطالب من الفوج بنجاح',
     student_transfer_success: 'تم تحويل الطالب بنجاح من الفوج السابق إلى الفوج الجديد',
     transfer_reason_required: 'يرجى تحديد سبب التحويل والفوج المستهدف',
+    transfer_same_group_error: 'لا يمكن تحويل الطالب إلى نفس الفوج الحالي',
+    forbidden_gender_access: 'ليس لديك صلاحية للوصول إلى بيانات هذا الجنس',
+    group_gender_required: 'يرجى تحديد جنس الفوج (ذكور أو إناث)',
+    student_gender_mismatch_group: 'لا يمكن تسجيل أو تحويل طالب في فوج مخصص للجنس الآخر (يجب تطابق الجنس)',
+    student_gender_change_has_groups: 'لا يمكن تغيير جنس الطالب لأنه مسجل حالياً في أفواج مخصصة لجنسه السابق ({groups}). يجب إلغاء تسجيله أولاً.',
 
     // Attendance & Substitution
     attendance_saved_success: 'تم حفظ تسجيل الحضور بنجاح',
@@ -129,6 +134,11 @@ export const translations = {
     student_unenrolled_success: 'Student removed from group successfully',
     student_transfer_success: 'Student transferred successfully to the new group',
     transfer_reason_required: 'Please provide transfer reason and target group',
+    transfer_same_group_error: 'Cannot transfer student to the same current cohort',
+    forbidden_gender_access: 'You do not have permission to access records of this gender',
+    group_gender_required: 'Please select the group gender (Males or Females)',
+    student_gender_mismatch_group: 'Cannot enroll or transfer student into a group reserved for the opposite gender',
+    student_gender_change_has_groups: 'Cannot change student gender while actively enrolled in groups designated for their previous gender ({groups}). Please unenroll them first.',
 
     // Attendance & Substitution
     attendance_saved_success: 'Attendance recorded successfully',
@@ -213,6 +223,11 @@ export const translations = {
     student_unenrolled_success: 'Élève désinscrit du groupe avec succès',
     student_transfer_success: 'Élève transféré avec succès vers le nouveau groupe',
     transfer_reason_required: 'Veuillez préciser le motif du transfert et le groupe cible',
+    transfer_same_group_error: "Impossible de transférer l'élève vers le même groupe actuel",
+    forbidden_gender_access: "Vous n'avez pas l'autorisation d'accéder aux données de ce genre",
+    group_gender_required: 'Veuillez sélectionner le genre du groupe (Garçons ou Filles)',
+    student_gender_mismatch_group: "Impossible d'inscrire ou de transférer un élève dans un groupe réservé à l'autre genre",
+    student_gender_change_has_groups: "Impossible de modifier le genre de l'élève car il est inscrit dans des groupes réservés à son ancien genre ({groups}). Veuillez d'abord le désinscrire.",
 
     // Attendance & Substitution
     attendance_saved_success: 'Feuille de présence enregistrée avec succès',

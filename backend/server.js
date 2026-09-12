@@ -30,24 +30,61 @@ import settingsRoutes from './routes/settingsRoutes.js';
 import classroomRoutes from './routes/classroomRoutes.js';
 import timetableRoutes from './routes/timetableRoutes.js';
 import userRoutes from './routes/userRoutes.js';
+import auditLogRoutes from './routes/auditLogRoutes.js';
+import deviceRoutes from './routes/deviceRoutes.js';
 
+import jwt from 'jsonwebtoken';
+import pool from './config/db.js';
 import i18nMiddleware from './middleware/i18nMiddleware.js';
 import { ensureDefaultSettingsRow } from './controllers/settingsController.js';
 import { ensureDefaultAdminUser } from './controllers/authController.js';
+import { migrateGroupGenderAndUserAccess } from './database/addGroupGenderAndUserAccess.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middlewares
+// CORS configuration: allow all local dev / local network origins
 app.use(cors({
-  origin: '*',
+  origin: true,
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language', 'X-Poste-Name', 'X-Workstation-Id', 'X-Device-Key']
 }));
 app.use(express.json());
 app.use(i18nMiddleware);
+
+// Universal token & device resolver: extracts req.user and req.deviceId
+app.use(async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'qafgo_super_secure_jwt_secret_key_2026');
+      req.user = decoded;
+    } catch {
+      // Non-blocking: unauthenticated or expired token
+    }
+  }
+
+  const rawKey = req.headers['x-device-key'];
+  if (rawKey) {
+    try {
+      const cleanKey = String(rawKey).trim().toUpperCase();
+      const [devRows] = await pool.query('SELECT id, device_name FROM devices WHERE device_key = ? LIMIT 1', [cleanKey]);
+      if (devRows.length > 0) {
+        req.deviceId = devRows[0].id;
+        req.deviceKey = cleanKey;
+        req.deviceName = devRows[0].device_name;
+      }
+    } catch {
+      // Non-blocking
+    }
+  }
+  next();
+});
+
 app.use('/uploads', express.static(uploadDir));
 
 // Health Check
@@ -70,6 +107,8 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/classrooms', classroomRoutes);
 app.use('/api/timetable', timetableRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/logs', auditLogRoutes);
+app.use('/api/devices', deviceRoutes);
 
 // Error Handler
 app.use((err, req, res, next) => {
@@ -85,6 +124,7 @@ app.listen(PORT, async () => {
   try {
     await ensureDefaultSettingsRow();
     await ensureDefaultAdminUser();
+    await migrateGroupGenderAndUserAccess();
   } catch (err) {
     console.error('Failed to initialize default database rows on startup:', err);
   }

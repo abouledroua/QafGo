@@ -19,7 +19,11 @@ CREATE TABLE IF NOT EXISTS `users` (
   `password_hash` VARCHAR(255) NOT NULL,
   `full_name` VARCHAR(150) NOT NULL,
   `role` ENUM('ADMIN', 'TEACHER', 'SUPERVISOR') DEFAULT 'ADMIN',
-  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  `is_active` TINYINT(1) DEFAULT 1,
+  `permissions` JSON NULL,
+  `gender_access` ENUM('ALL', 'MALE', 'FEMALE') DEFAULT 'ALL',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX (`gender_access`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 3. Teachers & Sheikhs (المشايخ والأساتذة)
@@ -56,15 +60,20 @@ CREATE TABLE IF NOT EXISTS `groups` (
   `name` VARCHAR(150) NOT NULL,
   `track_type` ENUM('HALAQA', 'PRESCHOOL', 'TUTORING') NOT NULL,
   `subject_name` VARCHAR(100),
+  `gender` ENUM('MALE', 'FEMALE', 'ALL') NOT NULL DEFAULT 'ALL',
   `teacher_id` INT NULL,
   `room` VARCHAR(100),
   `schedule` VARCHAR(255),
   `is_free` BOOLEAN DEFAULT FALSE,
   `monthly_fee` DECIMAL(10,2) DEFAULT 0.00,
+  `month_calculation_type` ENUM('CALENDAR_MONTH', 'PER_SESSION', 'PER_HOUR') NOT NULL DEFAULT 'CALENDAR_MONTH',
+  `package_quota` INT NULL DEFAULT NULL,
   `status` ENUM('PENDING', 'ACTIVE', 'STOPPED', 'ARCHIVED') NOT NULL DEFAULT 'PENDING',
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX (`academic_year_id`),
   INDEX (`track_type`),
+  INDEX (`gender`),
+  INDEX (`month_calculation_type`),
   INDEX (`status`),
   FOREIGN KEY (`academic_year_id`) REFERENCES `academic_years`(`id`) ON DELETE CASCADE,
   FOREIGN KEY (`teacher_id`) REFERENCES `teachers`(`id`) ON DELETE SET NULL
@@ -102,12 +111,18 @@ CREATE TABLE IF NOT EXISTS `transfers_log` (
   `transfer_date` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `reason` TEXT NOT NULL,
   `created_by` VARCHAR(100) DEFAULT 'إدارة المنصة',
+  `user_id` INT NULL,
+  `device_id` INT NULL,
   INDEX (`academic_year_id`),
   INDEX (`student_id`),
+  INDEX (`user_id`),
+  INDEX (`device_id`),
   FOREIGN KEY (`academic_year_id`) REFERENCES `academic_years`(`id`) ON DELETE CASCADE,
   FOREIGN KEY (`student_id`) REFERENCES `students`(`id`) ON DELETE CASCADE,
   FOREIGN KEY (`from_group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE,
-  FOREIGN KEY (`to_group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE
+  FOREIGN KEY (`to_group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_transfers_log_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_transfers_log_device` FOREIGN KEY (`device_id`) REFERENCES `devices`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 8. Tahfiz Logs (المسار القرآني - الحفظ والمراجعة)
@@ -124,9 +139,16 @@ CREATE TABLE IF NOT EXISTS `tahfiz_logs` (
   `hizb_to` DECIMAL(4,1),
   `grade` ENUM('MUMTAZ', 'JAYYID_JIDDAN', 'JAYYID', 'MAQBOOL', 'IADAH') DEFAULT 'MUMTAZ',
   `notes` TEXT,
+  `user_id` INT NULL,
+  `device_id` INT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX (`enrollment_id`),
   INDEX (`date`),
-  FOREIGN KEY (`enrollment_id`) REFERENCES `enrollments`(`id`) ON DELETE CASCADE
+  INDEX (`user_id`),
+  INDEX (`device_id`),
+  FOREIGN KEY (`enrollment_id`) REFERENCES `enrollments`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_tahfiz_logs_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_tahfiz_logs_device` FOREIGN KEY (`device_id`) REFERENCES `devices`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 9. PreSchool Logs (التعليم المبكر والتحضيري)
@@ -138,9 +160,16 @@ CREATE TABLE IF NOT EXISTS `preschool_logs` (
   `activity_title` VARCHAR(150),
   `score_rating` ENUM('EXCELLENT', 'VERY_GOOD', 'GOOD', 'NEEDS_IMPROVEMENT') NOT NULL,
   `behavior_note` TEXT,
+  `user_id` INT NULL,
+  `device_id` INT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX (`enrollment_id`),
   INDEX (`date`),
-  FOREIGN KEY (`enrollment_id`) REFERENCES `enrollments`(`id`) ON DELETE CASCADE
+  INDEX (`user_id`),
+  INDEX (`device_id`),
+  FOREIGN KEY (`enrollment_id`) REFERENCES `enrollments`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_preschool_logs_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_preschool_logs_device` FOREIGN KEY (`device_id`) REFERENCES `devices`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 10. Tutoring Grades (دروس الدعم والتقوية)
@@ -152,9 +181,16 @@ CREATE TABLE IF NOT EXISTS `tutoring_grades` (
   `max_score` DECIMAL(5,2) DEFAULT 20.00,
   `exam_date` DATE NOT NULL,
   `teacher_notes` TEXT,
+  `user_id` INT NULL,
+  `device_id` INT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX (`enrollment_id`),
   INDEX (`exam_date`),
-  FOREIGN KEY (`enrollment_id`) REFERENCES `enrollments`(`id`) ON DELETE CASCADE
+  INDEX (`user_id`),
+  INDEX (`device_id`),
+  FOREIGN KEY (`enrollment_id`) REFERENCES `enrollments`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_tutoring_grades_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_tutoring_grades_device` FOREIGN KEY (`device_id`) REFERENCES `devices`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 11. Attendance (الحضور والغياب)
@@ -178,14 +214,20 @@ CREATE TABLE IF NOT EXISTS `teacher_attendance` (
   `status` ENUM('PRESENT', 'ABSENT', 'EXCUSED', 'LATE') DEFAULT 'PRESENT',
   `substitute_teacher_id` INT NULL,
   `notes` TEXT NULL,
+  `user_id` INT NULL,
+  `device_id` INT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX (`teacher_id`),
   INDEX (`group_id`),
   INDEX (`date`),
+  INDEX (`user_id`),
+  INDEX (`device_id`),
   UNIQUE KEY `unique_teacher_session` (`teacher_id`, `group_id`, `date`),
   FOREIGN KEY (`teacher_id`) REFERENCES `teachers`(`id`) ON DELETE CASCADE,
   FOREIGN KEY (`group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE,
-  FOREIGN KEY (`substitute_teacher_id`) REFERENCES `teachers`(`id`) ON DELETE SET NULL
+  FOREIGN KEY (`substitute_teacher_id`) REFERENCES `teachers`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_teacher_attendance_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_teacher_attendance_device` FOREIGN KEY (`device_id`) REFERENCES `devices`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 13. Payments & Exemption Vouchers (المالية والاشتراكات)
@@ -200,14 +242,20 @@ CREATE TABLE IF NOT EXISTS `payments` (
   `receipt_no` VARCHAR(50) UNIQUE NOT NULL,
   `payment_status` ENUM('PAID', 'EXEMPTED') DEFAULT 'PAID',
   `notes` TEXT,
+  `user_id` INT NULL,
+  `device_id` INT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX (`academic_year_id`),
   INDEX (`student_id`),
   INDEX (`group_id`),
   INDEX (`month_ref`),
+  INDEX (`user_id`),
+  INDEX (`device_id`),
   FOREIGN KEY (`academic_year_id`) REFERENCES `academic_years`(`id`) ON DELETE CASCADE,
   FOREIGN KEY (`student_id`) REFERENCES `students`(`id`) ON DELETE CASCADE,
-  FOREIGN KEY (`group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE
+  FOREIGN KEY (`group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_payments_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_payments_device` FOREIGN KEY (`device_id`) REFERENCES `devices`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 14. Classrooms & Rooms (قاعات وفصول المدرسة)
@@ -233,14 +281,61 @@ CREATE TABLE IF NOT EXISTS `timetable_sessions` (
   `start_time` TIME NOT NULL,
   `end_time` TIME NOT NULL,
   `notes` VARCHAR(255) NULL,
+  `user_id` INT NULL,
+  `device_id` INT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX (`academic_year_id`),
   INDEX (`group_id`),
   INDEX (`classroom_id`),
   INDEX (`teacher_id`),
   INDEX (`day_of_week`, `start_time`, `end_time`),
+  INDEX (`user_id`),
+  INDEX (`device_id`),
   FOREIGN KEY (`academic_year_id`) REFERENCES `academic_years`(`id`) ON DELETE CASCADE,
   FOREIGN KEY (`group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE,
   FOREIGN KEY (`classroom_id`) REFERENCES `classrooms`(`id`) ON DELETE SET NULL,
-  FOREIGN KEY (`teacher_id`) REFERENCES `teachers`(`id`) ON DELETE SET NULL
+  FOREIGN KEY (`teacher_id`) REFERENCES `teachers`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_timetable_sessions_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_timetable_sessions_device` FOREIGN KEY (`device_id`) REFERENCES `devices`(`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 16. Audit & Activity Logs (سجل العمليات والأنشطة)
+CREATE TABLE IF NOT EXISTS `audit_logs` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `user_id` INT NULL,
+  `device_id` INT NULL,
+  `action_type` VARCHAR(50) NOT NULL,
+  `data_type` VARCHAR(100) NOT NULL,
+  `entity_id` INT NULL,
+  `entity_name` VARCHAR(255) NULL,
+  `poste` VARCHAR(150) NOT NULL,
+  `device_key` VARCHAR(16) NULL,
+  `user_agent` VARCHAR(255) NULL,
+  `details` TEXT NULL,
+  INDEX (`created_at`),
+  INDEX (`user_id`),
+  INDEX (`device_id`),
+  INDEX (`action_type`),
+  INDEX (`data_type`),
+  INDEX (`poste`),
+  INDEX (`device_key`),
+  CONSTRAINT `fk_audit_logs_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_audit_logs_device` FOREIGN KEY (`device_id`) REFERENCES `devices`(`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 17. Authorized Devices (أجهزة ومحطات العمل المصرح بها)
+CREATE TABLE IF NOT EXISTS `devices` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `device_key` VARCHAR(16) UNIQUE NOT NULL,
+  `device_name` VARCHAR(150) NOT NULL,
+  `fingerprint` VARCHAR(255) NULL,
+  `ip_address` VARCHAR(45) NULL,
+  `created_by_user_id` INT NULL,
+  `status` ENUM('ACTIVE', 'BLOCKED') DEFAULT 'ACTIVE',
+  `last_seen_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX (`device_key`),
+  INDEX (`fingerprint`),
+  CONSTRAINT `fk_devices_user` FOREIGN KEY (`created_by_user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

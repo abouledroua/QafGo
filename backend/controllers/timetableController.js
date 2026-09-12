@@ -240,10 +240,13 @@ export const createTimetableSession = async (req, res) => {
       });
     }
 
+    const userId = req.user?.id || null;
+    const deviceId = req.deviceId || null;
+
     const [result] = await pool.query(`
       INSERT INTO timetable_sessions (
-        academic_year_id, group_id, classroom_id, teacher_id, day_of_week, start_time, end_time, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        academic_year_id, group_id, classroom_id, teacher_id, day_of_week, start_time, end_time, notes, user_id, device_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       academic_year_id,
       group_id,
@@ -252,7 +255,9 @@ export const createTimetableSession = async (req, res) => {
       day_of_week,
       cleanStart,
       cleanEnd,
-      notes ? notes.trim() : null
+      notes ? notes.trim() : null,
+      userId,
+      deviceId
     ]);
 
     // Also update group room / schedule string for backward compatibility

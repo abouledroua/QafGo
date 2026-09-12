@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useSettings } from '../context/SettingsContext';
 import { useNotification } from '../context/NotificationContext';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { 
   X, 
@@ -10,6 +11,8 @@ import {
   MapPin, 
   Check, 
   Edit3,
+  Calendar,
+  Clock,
   Loader2 
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -27,6 +30,7 @@ export default function GroupEditModal({
   const { settings } = useSettings();
   const { showNotification } = useNotification();
   const { t, dir } = useLanguage();
+  const { user: authUser } = useAuth();
 
   const [teachers, setTeachers] = useState(externalTeachers);
   const [classrooms, setClassrooms] = useState(externalClassrooms);
@@ -35,13 +39,16 @@ export default function GroupEditModal({
   const [formData, setFormData] = useState({
     name: '',
     track_type: 'HALAQA',
+    gender: 'MALE',
     subject_name: '',
     teacher_id: '',
     room: '',
     schedule: '',
     sessions: [],
     is_free: false,
-    monthly_fee: 1500
+    monthly_fee: 1500,
+    month_calculation_type: 'CALENDAR_MONTH',
+    package_quota: ''
   });
 
   // Track availability from settings
@@ -110,16 +117,19 @@ export default function GroupEditModal({
       setFormData({
         name: group.name || '',
         track_type: group.track_type || 'HALAQA',
+        gender: group.gender || (authUser?.gender_access === 'FEMALE' ? 'FEMALE' : 'MALE'),
         subject_name: group.subject_name || '',
         teacher_id: group.teacher_id ? String(group.teacher_id) : '',
         room: group.room || '',
         schedule: group.schedule || '',
         sessions: [],
         is_free: Boolean(group.is_free),
-        monthly_fee: group.monthly_fee !== undefined ? group.monthly_fee : 1500
+        monthly_fee: group.monthly_fee !== undefined ? group.monthly_fee : 1500,
+        month_calculation_type: group.month_calculation_type || 'CALENDAR_MONTH',
+        package_quota: group.package_quota !== undefined && group.package_quota !== null ? group.package_quota : ''
       });
     }
-  }, [isOpen, group]);
+  }, [isOpen, group, authUser]);
 
   if (!isOpen || !group) return null;
 
@@ -140,13 +150,18 @@ export default function GroupEditModal({
       const payload = {
         name: formData.name.trim(),
         track_type: formData.track_type,
+        gender: settings?.group_gender_policy === 'SEPARATED' ? (formData.gender || 'MALE') : 'ALL',
         subject_name: formData.track_type === 'PRESCHOOL' ? null : (formData.subject_name.trim() || null),
         teacher_id: formData.teacher_id ? parseInt(formData.teacher_id, 10) : null,
         room: formData.room || null,
         schedule: formData.schedule || null,
         sessions: formData.sessions,
         is_free: formData.is_free,
-        monthly_fee: formData.is_free ? 0 : parseFloat(formData.monthly_fee) || 0
+        monthly_fee: formData.is_free ? 0 : parseFloat(formData.monthly_fee) || 0,
+        month_calculation_type: formData.is_free ? 'CALENDAR_MONTH' : (formData.month_calculation_type || 'CALENDAR_MONTH'),
+        package_quota: (!formData.is_free && formData.month_calculation_type !== 'CALENDAR_MONTH' && formData.package_quota) 
+          ? parseInt(formData.package_quota, 10) 
+          : null
       };
 
       const res = await api.put(`/groups/${group.id}`, payload);
@@ -252,6 +267,44 @@ export default function GroupEditModal({
               required
             />
           </div>
+
+          {/* Group Gender Selection (when policy is SEPARATED) */}
+          {settings?.group_gender_policy === 'SEPARATED' && (
+            <div>
+              <label className="block text-xs font-bold text-text-main mb-1.5">
+                {t('tracks.group_gender_label')} <span className="text-rose-500">*</span>
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  disabled={authUser?.gender_access === 'FEMALE'}
+                  onClick={() => setFormData({ ...formData, gender: 'MALE' })}
+                  className={`p-3 rounded-2xl border text-center transition-all flex items-center justify-center gap-2 ${
+                    formData.gender === 'MALE'
+                      ? 'bg-blue-500/10 border-blue-500 text-blue-600 font-bold shadow-xs'
+                      : 'bg-surface border-border text-text-muted hover:border-blue-500/40 disabled:opacity-40 disabled:cursor-not-allowed'
+                  }`}
+                >
+                  <span className="text-base font-bold">♂</span>
+                  <span className="text-xs">{t('tracks.group_gender_male')}</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={authUser?.gender_access === 'MALE'}
+                  onClick={() => setFormData({ ...formData, gender: 'FEMALE' })}
+                  className={`p-3 rounded-2xl border text-center transition-all flex items-center justify-center gap-2 ${
+                    formData.gender === 'FEMALE'
+                      ? 'bg-pink-500/10 border-pink-500 text-pink-600 font-bold shadow-xs'
+                      : 'bg-surface border-border text-text-muted hover:border-pink-500/40 disabled:opacity-40 disabled:cursor-not-allowed'
+                  }`}
+                >
+                  <span className="text-base font-bold">♀</span>
+                  <span className="text-xs">{t('tracks.group_gender_female')}</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Subject / Program (hidden when track is preschool) */}
           {formData.track_type !== 'PRESCHOOL' && (
@@ -388,19 +441,131 @@ export default function GroupEditModal({
             </div>
 
             {!formData.is_free && (
-              <div>
-                <label className="block text-xs font-bold text-text-main mb-1">
-                  {t('tracks.monthly_fee_standard')}
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="50"
-                  value={formData.monthly_fee}
-                  onChange={(e) => setFormData({ ...formData, monthly_fee: e.target.value })}
-                  className="w-full p-2.5 bg-surface-card border border-border rounded-xl text-sm font-mono font-bold text-text-main focus:ring-2 focus:ring-primary outline-none"
-                  required
-                />
+              <div className="space-y-4 pt-3 border-t border-border">
+                {/* Month Calculation Method Selector */}
+                <div>
+                  <label className="block text-xs font-bold text-text-main mb-2">
+                    {t('tracks.month_calculation_type_label')}
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {/* 1. Calendar Month */}
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, month_calculation_type: 'CALENDAR_MONTH' })}
+                      className={`p-3 rounded-xl border text-start transition-all flex flex-col justify-between gap-1.5 ${
+                        formData.month_calculation_type === 'CALENDAR_MONTH'
+                          ? 'bg-primary/10 border-primary text-primary shadow-sm ring-1 ring-primary/30'
+                          : 'bg-surface-card border-border text-text-muted hover:border-text-muted/40 hover:text-text-main'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Calendar className="w-4 h-4 shrink-0" />
+                        <span className="text-xs font-bold">{t('tracks.calc_calendar_month')}</span>
+                      </div>
+                      <span className="text-[10px] opacity-80 leading-relaxed">{t('tracks.calc_calendar_month_desc')}</span>
+                    </button>
+
+                    {/* 2. Per Number of Sessions */}
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, month_calculation_type: 'PER_SESSION' })}
+                      className={`p-3 rounded-xl border text-start transition-all flex flex-col justify-between gap-1.5 ${
+                        formData.month_calculation_type === 'PER_SESSION'
+                          ? 'bg-primary/10 border-primary text-primary shadow-sm ring-1 ring-primary/30'
+                          : 'bg-surface-card border-border text-text-muted hover:border-text-muted/40 hover:text-text-main'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Layers className="w-4 h-4 shrink-0" />
+                        <span className="text-xs font-bold">{t('tracks.calc_per_session')}</span>
+                      </div>
+                      <span className="text-[10px] opacity-80 leading-relaxed">{t('tracks.calc_per_session_desc')}</span>
+                    </button>
+
+                    {/* 3. Per Number of Hours */}
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, month_calculation_type: 'PER_HOUR' })}
+                      className={`p-3 rounded-xl border text-start transition-all flex flex-col justify-between gap-1.5 ${
+                        formData.month_calculation_type === 'PER_HOUR'
+                          ? 'bg-primary/10 border-primary text-primary shadow-sm ring-1 ring-primary/30'
+                          : 'bg-surface-card border-border text-text-muted hover:border-text-muted/40 hover:text-text-main'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Clock className="w-4 h-4 shrink-0" />
+                        <span className="text-xs font-bold">{t('tracks.calc_per_hour')}</span>
+                      </div>
+                      <span className="text-[10px] opacity-80 leading-relaxed">{t('tracks.calc_per_hour_desc')}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Inputs based on calculation mode */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-text-main mb-1">
+                      {t('tracks.monthly_fee_standard')}
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="50"
+                      value={formData.monthly_fee}
+                      onChange={(e) => setFormData({ ...formData, monthly_fee: e.target.value })}
+                      className="w-full p-2.5 bg-surface-card border border-border rounded-xl text-sm font-mono font-bold text-text-main focus:ring-2 focus:ring-primary outline-none"
+                      required
+                    />
+                  </div>
+
+                  {formData.month_calculation_type === 'PER_SESSION' && (
+                    <div>
+                      <label className="block text-xs font-bold text-text-main mb-1">
+                        {t('tracks.sessions_quota_label')}
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        placeholder="8"
+                        value={formData.package_quota}
+                        onChange={(e) => setFormData({ ...formData, package_quota: e.target.value })}
+                        className="w-full p-2.5 bg-surface-card border border-border rounded-xl text-sm font-mono font-bold text-text-main focus:ring-2 focus:ring-primary outline-none"
+                        required
+                      />
+                    </div>
+                  )}
+
+                  {formData.month_calculation_type === 'PER_HOUR' && (
+                    <div>
+                      <label className="block text-xs font-bold text-text-main mb-1">
+                        {t('tracks.hours_quota_label')}
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        placeholder="12"
+                        value={formData.package_quota}
+                        onChange={(e) => setFormData({ ...formData, package_quota: e.target.value })}
+                        className="w-full p-2.5 bg-surface-card border border-border rounded-xl text-sm font-mono font-bold text-text-main focus:ring-2 focus:ring-primary outline-none"
+                        required
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Live rate indicators */}
+                {formData.month_calculation_type === 'PER_SESSION' && formData.package_quota > 0 && formData.monthly_fee > 0 && (
+                  <div className="text-xs text-primary font-mono font-bold bg-primary/10 border border-primary/20 px-3 py-1.5 rounded-lg inline-block">
+                    {t('tracks.unit_rate_per_session', { rate: Math.round(parseFloat(formData.monthly_fee) / parseInt(formData.package_quota, 10)).toLocaleString() })}
+                  </div>
+                )}
+                {formData.month_calculation_type === 'PER_HOUR' && formData.package_quota > 0 && formData.monthly_fee > 0 && (
+                  <div className="text-xs text-primary font-mono font-bold bg-primary/10 border border-primary/20 px-3 py-1.5 rounded-lg inline-block">
+                    {t('tracks.unit_rate_per_hour', { rate: Math.round(parseFloat(formData.monthly_fee) / parseInt(formData.package_quota, 10)).toLocaleString() })}
+                  </div>
+                )}
               </div>
             )}
           </div>

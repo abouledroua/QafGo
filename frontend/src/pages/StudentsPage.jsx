@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAcademicYear } from '../context/AcademicYearContext';
 import { useNotification } from '../context/NotificationContext';
 import { useLanguage } from '../context/LanguageContext';
+import { useSettings } from '../context/SettingsContext';
+import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { 
   Users, 
@@ -33,6 +35,8 @@ export default function StudentsPage() {
   const { selectedYearId, selectedYearObj } = useAcademicYear();
   const { showNotification } = useNotification();
   const { t, dir, isRtl } = useLanguage();
+  const { settings } = useSettings();
+  const { user: authUser } = useAuth();
 
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -343,7 +347,25 @@ export default function StudentsPage() {
 
           <button
             type="button"
-            onClick={() => setModalOpen(true)}
+            onClick={() => {
+              const defaultGender = (settings?.group_gender_policy === 'SEPARATED' && authUser?.gender_access === 'FEMALE') ? 'FEMALE' : 'MALE';
+              setFormData({
+                full_name: '',
+                dob: '',
+                gender: defaultGender,
+                academic_level: '',
+                guardian_name: '',
+                guardian_phone: '',
+                photo_url: '',
+                notes: '',
+                group_id: '',
+                discount_type: 'NONE',
+                discount_value: 0
+              });
+              setPhotoPreview(null);
+              setPhotoFile(null);
+              setModalOpen(true);
+            }}
             className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-primary hover:bg-primary-hover text-white text-sm font-bold shadow-lg shadow-primary/25 transition-all"
           >
             <UserPlus className="w-5 h-5" />
@@ -900,11 +922,24 @@ export default function StudentsPage() {
                   <label className="block text-xs font-bold text-text-main mb-1">{t('students.gender')}</label>
                   <select
                     value={formData.gender}
-                    onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                    className="w-full p-3 bg-surface border border-border rounded-xl text-xs font-bold text-text-main"
+                    disabled={settings?.group_gender_policy === 'SEPARATED' && authUser?.gender_access && authUser.gender_access !== 'ALL'}
+                    onChange={(e) => {
+                      const newGender = e.target.value;
+                      setFormData(prev => ({
+                        ...prev,
+                        gender: newGender,
+                        // Reset group_id if currently selected group does not match new gender
+                        group_id: ''
+                      }));
+                    }}
+                    className="w-full p-3 bg-surface border border-border rounded-xl text-xs font-bold text-text-main disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    <option value="MALE">{t('students.male_boy')}</option>
-                    <option value="FEMALE">{t('students.female_girl')}</option>
+                    {(!settings?.group_gender_policy || settings.group_gender_policy !== 'SEPARATED' || authUser?.gender_access !== 'FEMALE') && (
+                      <option value="MALE">{t('students.male_boy')}</option>
+                    )}
+                    {(!settings?.group_gender_policy || settings.group_gender_policy !== 'SEPARATED' || authUser?.gender_access !== 'MALE') && (
+                      <option value="FEMALE">{t('students.female_girl')}</option>
+                    )}
                   </select>
                 </div>
 
@@ -962,10 +997,17 @@ export default function StudentsPage() {
                       className="w-full p-2.5 bg-surface-card border border-border rounded-xl text-xs font-bold text-text-main"
                     >
                       <option value="">{t('students.free_enrollment_no_group')}</option>
-                      {availableGroups.map(g => (
-                        <option key={g.id} value={g.id}>
-                          {g.name} ({g.is_free ? t('students.free') : `${g.monthly_fee} ${t('common.currency')}`})
-                        </option>
+                      {availableGroups
+                        .filter(g => {
+                          if (settings?.group_gender_policy === 'SEPARATED') {
+                            return !g.gender || g.gender === 'ALL' || g.gender === formData.gender;
+                          }
+                          return true;
+                        })
+                        .map(g => (
+                          <option key={g.id} value={g.id}>
+                            {g.name} {settings?.group_gender_policy === 'SEPARATED' && g.gender !== 'ALL' ? `(${g.gender === 'FEMALE' ? t('common.female') : t('common.male')}) ` : ''}({g.is_free ? t('students.free') : `${g.monthly_fee} ${t('common.currency')}`})
+                          </option>
                       ))}
                     </select>
                   </div>
@@ -1132,8 +1174,9 @@ export default function StudentsPage() {
                   <label className="block text-xs font-bold text-text-main mb-1">{t('students.gender')}</label>
                   <select
                     value={editFormData.gender}
+                    disabled={settings?.group_gender_policy === 'SEPARATED' && authUser?.gender_access && authUser.gender_access !== 'ALL'}
                     onChange={(e) => setEditFormData({ ...editFormData, gender: e.target.value })}
-                    className="w-full p-2.5 bg-surface border border-border rounded-xl text-xs font-bold text-text-main focus:border-primary outline-none"
+                    className="w-full p-2.5 bg-surface border border-border rounded-xl text-xs font-bold text-text-main focus:border-primary outline-none disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     <option value="MALE">{t('students.male_boy')}</option>
                     <option value="FEMALE">{t('students.female_girl')}</option>

@@ -1,12 +1,13 @@
 import pool from '../config/db.js';
 import bcrypt from 'bcryptjs';
 import { ALL_PERMISSIONS } from './authController.js';
+import { logActivity } from '../utils/auditLogger.js';
 
 // 1. Get All Users
 export const getUsers = async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT id, username, full_name, role, is_active, permissions, created_at 
+      SELECT id, username, full_name, role, is_active, permissions, gender_access, created_at 
       FROM users 
       ORDER BY id ASC
     `);
@@ -25,7 +26,8 @@ export const getUsers = async (req, res) => {
       return {
         ...u,
         is_active: Boolean(u.is_active !== 0),
-        permissions: Array.isArray(perms) ? perms : []
+        permissions: Array.isArray(perms) ? perms : [],
+        gender_access: u.gender_access || 'ALL'
       };
     });
 
@@ -39,7 +41,7 @@ export const getUsers = async (req, res) => {
 // 2. Create User
 export const createUser = async (req, res) => {
   try {
-    const { username, password, full_name, role = 'SUPERVISOR', is_active = true, permissions = [] } = req.body;
+    const { username, password, full_name, role = 'SUPERVISOR', is_active = true, permissions = [], gender_access = 'ALL' } = req.body;
 
     if (!username || !password || !full_name) {
       return res.status(400).json({
@@ -76,12 +78,22 @@ export const createUser = async (req, res) => {
     const passwordHash = await bcrypt.hash(password, salt);
 
     const userPermissions = role === 'ADMIN' ? ALL_PERMISSIONS : (Array.isArray(permissions) ? permissions : []);
+    const validGenders = ['ALL', 'MALE', 'FEMALE'];
+    const userGenderAccess = validGenders.includes(gender_access) ? gender_access : 'ALL';
 
     const [result] = await pool.query(
-      `INSERT INTO users (username, password_hash, full_name, role, is_active, permissions)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [cleanUsername, passwordHash, full_name.trim(), role, is_active ? 1 : 0, JSON.stringify(userPermissions)]
+      `INSERT INTO users (username, password_hash, full_name, role, is_active, permissions, gender_access)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [cleanUsername, passwordHash, full_name.trim(), role, is_active ? 1 : 0, JSON.stringify(userPermissions), userGenderAccess]
     );
+
+    logActivity(req, {
+      action_type: 'CREATE',
+      data_type: 'USER',
+      entity_id: result.insertId,
+      entity_name: cleanUsername,
+      details: `إنشاء مستخدم جديد: "${full_name.trim()}" (${cleanUsername}) - الدور: ${role} - صلاحية الجنس: ${userGenderAccess}`
+    });
 
     return res.status(201).json({
       success: true,
@@ -92,7 +104,8 @@ export const createUser = async (req, res) => {
         full_name: full_name.trim(),
         role,
         is_active: Boolean(is_active),
-        permissions: userPermissions
+        permissions: userPermissions,
+        gender_access: userGenderAccess
       }
     });
   } catch (error) {
@@ -101,11 +114,11 @@ export const createUser = async (req, res) => {
   }
 };
 
-// 3. Update User (profile, role, permissions, status)
+// 3. Update User (profile, role, permissions, status, gender_access)
 export const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const { full_name, role, is_active, permissions } = req.body;
+    const { full_name, role, is_active, permissions, gender_access } = req.body;
 
     const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [id]);
     if (rows.length === 0) {
@@ -141,12 +154,25 @@ export const updateUser = async (req, res) => {
       updatedPermissions = [];
     }
 
+    const validGenders = ['ALL', 'MALE', 'FEMALE'];
+    const updatedGenderAccess = (gender_access && validGenders.includes(gender_access)) 
+      ? gender_access 
+      : (targetUser.gender_access || 'ALL');
+
     await pool.query(
       `UPDATE users 
-       SET full_name = ?, role = ?, is_active = ?, permissions = ?
+       SET full_name = ?, role = ?, is_active = ?, permissions = ?, gender_access = ?
        WHERE id = ?`,
-      [updatedFullName, updatedRole, updatedActive, JSON.stringify(updatedPermissions), id]
+      [updatedFullName, updatedRole, updatedActive, JSON.stringify(updatedPermissions), updatedGenderAccess, id]
     );
+
+    logActivity(req, {
+      action_type: 'UPDATE',
+      data_type: 'USER',
+      entity_id: id,
+      entity_name: targetUser.username,
+      details: `تحديث بيانات وصلاحيات المستخدم: "${updatedFullName}" (${targetUser.username}) - الدور: ${updatedRole} - الحالة: ${updatedActive ? 'نشط' : 'معطل'} - صلاحية الجنس: ${updatedGenderAccess}`
+    });
 
     return res.json({
       success: true,
@@ -157,7 +183,8 @@ export const updateUser = async (req, res) => {
         full_name: updatedFullName,
         role: updatedRole,
         is_active: Boolean(updatedActive !== 0),
-        permissions: updatedPermissions
+        permissions: updatedPermissions,
+        gender_access: updatedGenderAccess
       }
     });
   } catch (error) {
@@ -188,6 +215,14 @@ export const resetUserPassword = async (req, res) => {
     const passwordHash = await bcrypt.hash(new_password, salt);
 
     await pool.query('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, id]);
+
+    logActivity(req, {
+      action_type: 'PASSWORD_RESET',
+      data_type: 'USER',
+      entity_id: id,
+      entity_name: rows[0].username,
+      details: `إعادة تعيين كلمة المرور للمستخدم: "${rows[0].username}"`
+    });
 
     return res.json({
       success: true,
@@ -224,11 +259,20 @@ export const deleteUser = async (req, res) => {
       });
     }
 
+    const deletedUsername = rows[0].username;
     await pool.query('DELETE FROM users WHERE id = ?', [id]);
+
+    logActivity(req, {
+      action_type: 'DELETE',
+      data_type: 'USER',
+      entity_id: id,
+      entity_name: deletedUsername,
+      details: `حذف حساب المستخدم: "${deletedUsername}"`
+    });
 
     return res.json({
       success: true,
-      message: `تم حذف المستخدم (${rows[0].username}) بنجاح`
+      message: `تم حذف المستخدم (${deletedUsername}) بنجاح`
     });
   } catch (error) {
     console.error('deleteUser error:', error);

@@ -1,8 +1,11 @@
 import pool from '../config/db.js';
+import { logActivity } from '../utils/auditLogger.js';
+import { getGroupGenderPolicy } from './settingsController.js';
 
 export const getStudents = async (req, res) => {
   try {
-    const { academic_year_id, track_type, search, status } = req.query;
+    const { academic_year_id, track_type, search, status, gender } = req.query;
+    const policy = await getGroupGenderPolicy();
 
     let query = `
       SELECT DISTINCT
@@ -43,6 +46,17 @@ export const getStudents = async (req, res) => {
     if (status) {
       query += ` AND e.status = ?`;
       params.push(status);
+    }
+
+    if (gender) {
+      query += ` AND s.gender = ?`;
+      params.push(gender);
+    }
+
+    // Gender access restriction when policy is SEPARATED
+    if (policy === 'SEPARATED' && req.user?.gender_access && req.user.gender_access !== 'ALL') {
+      query += ` AND s.gender = ?`;
+      params.push(req.user.gender_access);
     }
 
     if (search) {
@@ -177,6 +191,16 @@ export const getStudentById = async (req, res) => {
 
     const student = students[0];
 
+    const policy = await getGroupGenderPolicy();
+    if (policy === 'SEPARATED' && req.user?.gender_access && req.user.gender_access !== 'ALL') {
+      if (student.gender !== req.user.gender_access) {
+        return res.status(403).json({
+          success: false,
+          message: req.t('forbidden_gender_access') || 'ليس لديك صلاحية للوصول إلى بيانات هذا الطالب'
+        });
+      }
+    }
+
     // Current & past enrollments
     const [enrollments] = await pool.query(`
       SELECT 
@@ -185,6 +209,7 @@ export const getStudentById = async (req, res) => {
         ay.is_current AS is_year_current,
         g.name AS group_name,
         g.track_type,
+        g.gender AS group_gender,
         g.is_free,
         g.monthly_fee,
         t.full_name AS teacher_name
@@ -225,6 +250,32 @@ export const createStudent = async (req, res) => {
       return res.status(400).json({ success: false, message: req.t('student_required_fields') });
     }
 
+    const policy = await getGroupGenderPolicy();
+    const finalGender = gender || 'MALE';
+
+    // Access check
+    if (policy === 'SEPARATED' && req.user?.gender_access && req.user.gender_access !== 'ALL') {
+      if (finalGender !== req.user.gender_access) {
+        return res.status(403).json({
+          success: false,
+          message: req.t('forbidden_gender_access') || 'غير مصرح لك بإنشاء طالب لهذا الجنس'
+        });
+      }
+    }
+
+    // Check initial group gender matching if provided
+    if (academic_year_id && group_id && policy === 'SEPARATED') {
+      const [gRows] = await pool.query('SELECT gender FROM groups WHERE id = ?', [group_id]);
+      if (gRows.length > 0 && gRows[0].gender && gRows[0].gender !== 'ALL') {
+        if (finalGender !== gRows[0].gender) {
+          return res.status(400).json({
+            success: false,
+            message: req.t('student_gender_mismatch_group') || 'لا يمكن تسجيل طالب في فوج مخصص للجنس الآخر (يجب تطابق الجنس)'
+          });
+        }
+      }
+    }
+
     const yearSuffix = new Date().getFullYear();
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
     const reg_no = `QAF-${yearSuffix}-${randomSuffix}`;
@@ -240,7 +291,7 @@ export const createStudent = async (req, res) => {
         reg_no,
         full_name,
         dob || null,
-        gender || 'MALE',
+        finalGender,
         academic_level || 'ابتدائي',
         guardian_name || null,
         guardian_phone,
@@ -267,6 +318,15 @@ export const createStudent = async (req, res) => {
       }
 
       await connection.commit();
+
+      logActivity(req, {
+        action_type: 'CREATE',
+        data_type: 'STUDENT',
+        entity_id: studentId,
+        entity_name: full_name,
+        details: `إضافة طالب جديد: ${full_name} (${reg_no}) [الجنس: ${finalGender}] - هاتف الولي: ${guardian_phone}`
+      });
+
       return res.status(201).json({
         success: true,
         message: `${req.t('student_created_success')} (${reg_no})`,
@@ -307,6 +367,37 @@ export const updateStudent = async (req, res) => {
     if (existing.length === 0) {
       return res.status(404).json({ success: false, message: req.t('student_not_found') });
     }
+    const current = existing[0];
+
+    const policy = await getGroupGenderPolicy();
+    const finalGender = gender || current.gender || 'MALE';
+
+    if (policy === 'SEPARATED' && req.user?.gender_access && req.user.gender_access !== 'ALL') {
+      if (current.gender !== req.user.gender_access || finalGender !== req.user.gender_access) {
+        return res.status(403).json({
+          success: false,
+          message: req.t('forbidden_gender_access') || 'ليس لديك صلاحية لتعديل بيانات هذا الطالب'
+        });
+      }
+    }
+
+    if (policy === 'SEPARATED' && finalGender !== current.gender) {
+      const [enrolledGroups] = await pool.query(`
+        SELECT g.name, g.gender 
+        FROM enrollments e
+        JOIN groups g ON e.group_id = g.id
+        WHERE e.student_id = ? AND e.status = 'ACTIVE' AND g.gender = ?
+      `, [id, current.gender]);
+
+      if (enrolledGroups.length > 0) {
+        const groupNames = enrolledGroups.map(g => g.name).join(', ');
+        return res.status(400).json({
+          success: false,
+          message: req.t('student_gender_change_has_groups', { groups: groupNames }) ||
+            `لا يمكن تغيير جنس الطالب لأنه مسجل حالياً في أفواج مخصصة لجنسه السابق (${groupNames}). يجب إلغاء تسجيله أولاً.`
+        });
+      }
+    }
 
     await pool.query(`
       UPDATE students 
@@ -315,14 +406,22 @@ export const updateStudent = async (req, res) => {
     `, [
       full_name,
       dob || null,
-      gender || 'MALE',
+      finalGender,
       academic_level || null,
       guardian_name || null,
       guardian_phone,
-      photo_url !== undefined ? (photo_url || null) : existing[0].photo_url,
+      photo_url !== undefined ? (photo_url || null) : current.photo_url,
       notes || null,
       id
     ]);
+
+    logActivity(req, {
+      action_type: 'UPDATE',
+      data_type: 'STUDENT',
+      entity_id: id,
+      entity_name: full_name,
+      details: `تعديل بيانات الطالب: ${full_name} (رقم التسجيل: ${current.reg_no}) [الجنس: ${finalGender}]`
+    });
 
     return res.json({ success: true, message: req.t('student_updated_success') });
   } catch (error) {
@@ -362,6 +461,14 @@ export const deleteStudent = async (req, res) => {
 
     // Delete student
     await pool.query('DELETE FROM students WHERE id = ?', [id]);
+
+    logActivity(req, {
+      action_type: 'DELETE',
+      data_type: 'STUDENT',
+      entity_id: id,
+      entity_name: student.full_name,
+      details: `حذف سجل الطالب: ${student.full_name} (${student.reg_no})`
+    });
 
     return res.json({
       success: true,
@@ -567,22 +674,39 @@ export const getStudentLifetimeDossier = async (req, res) => {
     const timeline = [];
 
     enrollments.forEach(en => {
-      timeline.push({
-        id: `en-${en.id}`,
-        type: 'ENROLLMENT',
-        date: en.enrolled_at,
-        year: en.academic_year_label,
-        title: `التحاق بـ ${en.group_name}`,
-        subtitle: `المسار: ${en.track_type === 'HALAQA' ? 'قرآني' : en.track_type === 'PRESCHOOL' ? 'تحضيري' : 'دعم مدرسي'} | الأستاذ: ${en.teacher_name || 'غير محدد'}`,
-        status: en.status,
-        badgeColor: en.track_type === 'HALAQA' ? 'emerald' : en.track_type === 'PRESCHOOL' ? 'purple' : 'blue',
-        details: en.discount_type === 'FULL_EXEMPTION' ? 'منحة إعفاء كامل 100%' : en.discount_type !== 'NONE' ? `خصم: ${en.discount_value}` : 'تسجيل قياسي'
-      });
-      if (en.status === 'TRANSFERRED' && en.ended_at) {
+      // If this enrollment was created as the destination of an official transfer,
+      // it is already documented by the TRANSFER_EVENT below.
+      // Only include independent/initial enrollments (not originating from a transfer).
+      const isDestinationOfTransfer = transfers.some(tr => 
+        Number(tr.to_group_id) === Number(en.group_id) && 
+        Number(tr.academic_year_id) === Number(en.academic_year_id)
+      );
+
+      if (!isDestinationOfTransfer) {
+        timeline.push({
+          id: `en-${en.id}`,
+          type: 'ENROLLMENT',
+          date: en.created_at || en.enrolled_at,
+          year: en.academic_year_label,
+          title: `التحاق بـ ${en.group_name}`,
+          subtitle: `المسار: ${en.track_type === 'HALAQA' ? 'قرآني' : en.track_type === 'PRESCHOOL' ? 'تحضيري' : 'دعم مدرسي'} | الأستاذ: ${en.teacher_name || 'غير محدد'}`,
+          status: en.status,
+          badgeColor: en.track_type === 'HALAQA' ? 'emerald' : en.track_type === 'PRESCHOOL' ? 'purple' : 'blue',
+          details: en.discount_type === 'FULL_EXEMPTION' ? 'منحة إعفاء كامل 100%' : en.discount_type !== 'NONE' ? `خصم: ${en.discount_value}` : 'تسجيل قياسي'
+        });
+      }
+
+      // Only push a standalone TRANSFER_OUT if this transfer is NOT recorded in transfers_log (fallback for legacy data)
+      const isLoggedTransfer = transfers.some(tr => 
+        Number(tr.from_group_id) === Number(en.group_id) && 
+        Number(tr.academic_year_id) === Number(en.academic_year_id)
+      );
+
+      if (en.status === 'TRANSFERRED' && en.ended_at && !isLoggedTransfer) {
         timeline.push({
           id: `en-trans-${en.id}`,
           type: 'TRANSFER_OUT',
-          date: en.ended_at,
+          date: en.created_at || en.ended_at,
           year: en.academic_year_label,
           title: `انتقال من فوج: ${en.group_name}`,
           subtitle: `سبب الانتقال: ${en.transfer_reason || 'تغيير الجدول / ترقية المستوى'}`,
@@ -610,7 +734,7 @@ export const getStudentLifetimeDossier = async (req, res) => {
       timeline.push({
         id: `th-${th.id}`,
         type: 'TAHFIZ_EVALUATION',
-        date: th.date,
+        date: th.created_at || th.date,
         year: th.academic_year_label,
         title: `${th.type === 'MEMORIZATION' ? 'حفظ جديد' : 'مراجعة وتثبيت'}: من ${th.surah_from} إلى ${th.surah_to}`,
         subtitle: `نطاق الأحزاب: ${th.hizb_from || '-'} إلى ${th.hizb_to || '-'} | التقدير: ${th.grade}`,
@@ -624,7 +748,7 @@ export const getStudentLifetimeDossier = async (req, res) => {
       timeline.push({
         id: `ps-${ps.id}`,
         type: 'PRESCHOOL_EVALUATION',
-        date: ps.date,
+        date: ps.created_at || ps.date,
         year: ps.academic_year_label,
         title: `تقييم مهارة: ${ps.activity_title || ps.skill_category}`,
         subtitle: `التصنيف: ${ps.skill_category} | التقدير: ${ps.score_rating}`,
@@ -638,7 +762,7 @@ export const getStudentLifetimeDossier = async (req, res) => {
       timeline.push({
         id: `tg-${tg.id}`,
         type: 'TUTORING_GRADE',
-        date: tg.exam_date,
+        date: tg.created_at || tg.exam_date,
         year: tg.academic_year_label,
         title: `اختبار دعم: ${tg.exam_title}`,
         subtitle: `العلامة المحصل عليها: ${tg.score} / ${tg.max_score}`,
@@ -648,8 +772,20 @@ export const getStudentLifetimeDossier = async (req, res) => {
       });
     });
 
-    // Sort timeline descending by date
-    timeline.sort((a, b) => new Date(b.date) - new Date(a.date));
+    // Sort timeline descending by date (newest first, with logical tie-breaker for same-day actions)
+    timeline.sort((a, b) => {
+      const timeDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      const typePriority = {
+        'TUTORING_GRADE': 5,
+        'PRESCHOOL_EVALUATION': 5,
+        'TAHFIZ_EVALUATION': 5,
+        'TRANSFER_EVENT': 4,
+        'TRANSFER_OUT': 3,
+        'ENROLLMENT': 1
+      };
+      return (typePriority[b.type] || 0) - (typePriority[a.type] || 0);
+    });
 
     return res.json({
       success: true,

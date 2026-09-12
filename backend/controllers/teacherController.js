@@ -1,4 +1,5 @@
 import pool from '../config/db.js';
+import { logActivity } from '../utils/auditLogger.js';
 
 // 1. Get all teachers with assigned groups statistics
 export const getTeachers = async (req, res) => {
@@ -126,6 +127,15 @@ export const createTeacher = async (req, res) => {
     const [created] = await pool.query('SELECT * FROM teachers WHERE id = ?', [newTeacherId]);
 
     const createdTeacher = created[0];
+
+    logActivity(req, {
+      action_type: 'CREATE',
+      data_type: 'TEACHER',
+      entity_id: newTeacherId,
+      entity_name: full_name.trim(),
+      details: `إضافة أستاذ/شيخ جديد: "${full_name.trim()}" - الهاتف: ${phone || 'غير محدد'} - التخصص: ${specialty || 'عام'}`
+    });
+
     return res.status(201).json({
       success: true,
       message: req.t('teacher_created_success'),
@@ -184,6 +194,14 @@ export const updateTeacher = async (req, res) => {
     const [updated] = await pool.query('SELECT * FROM teachers WHERE id = ?', [id]);
     const updatedTeacher = updated[0];
 
+    logActivity(req, {
+      action_type: 'UPDATE',
+      data_type: 'TEACHER',
+      entity_id: id,
+      entity_name: full_name.trim(),
+      details: `تعديل بيانات الأستاذ/الشيخ: "${full_name.trim()}"`
+    });
+
     return res.json({
       success: true,
       message: req.t('teacher_updated_success'),
@@ -212,10 +230,21 @@ export const deleteTeacher = async (req, res) => {
       });
     }
 
+    const [existingTeacher] = await pool.query('SELECT full_name FROM teachers WHERE id = ?', [id]);
+    const teacherName = existingTeacher?.[0]?.full_name || id;
+
     const [result] = await pool.query('DELETE FROM teachers WHERE id = ?', [id]);
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: req.t('teacher_not_found') });
     }
+
+    logActivity(req, {
+      action_type: 'DELETE',
+      data_type: 'TEACHER',
+      entity_id: id,
+      entity_name: teacherName,
+      details: `حذف سجل الأستاذ/الشيخ: "${teacherName}"`
+    });
 
     return res.json({ success: true, message: req.t('teacher_deleted_success') });
   } catch (error) {

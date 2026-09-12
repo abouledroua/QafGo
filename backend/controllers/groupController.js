@@ -1,8 +1,11 @@
 import pool from '../config/db.js';
+import { logActivity } from '../utils/auditLogger.js';
+import { getGroupGenderPolicy } from './settingsController.js';
 
 export const getGroups = async (req, res) => {
   try {
-    const { academic_year_id, track_type, search, status } = req.query;
+    const { academic_year_id, track_type, search, status, gender } = req.query;
+    const policy = await getGroupGenderPolicy();
 
     let query = `
       SELECT 
@@ -35,9 +38,20 @@ export const getGroups = async (req, res) => {
       params.push(status);
     }
 
+    if (gender) {
+      query += ` AND g.gender = ?`;
+      params.push(gender);
+    }
+
     if (search) {
       query += ` AND (g.name LIKE ? OR g.subject_name LIKE ? OR t.full_name LIKE ?)`;
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    // Filter by gender_access when gender separation is enabled
+    if (policy === 'SEPARATED' && req.user?.gender_access && req.user.gender_access !== 'ALL') {
+      query += ` AND (g.gender = ? OR g.gender = 'ALL' OR g.gender IS NULL)`;
+      params.push(req.user.gender_access);
     }
 
     query += ` ORDER BY g.track_type ASC, g.name ASC`;
@@ -53,6 +67,7 @@ export const getGroups = async (req, res) => {
 export const getGroupById = async (req, res) => {
   try {
     const { id } = req.params;
+    const policy = await getGroupGenderPolicy();
 
     const [groups] = await pool.query(`
       SELECT 
@@ -74,6 +89,17 @@ export const getGroupById = async (req, res) => {
     }
 
     const group = groups[0];
+
+    // Accessibility check if policy is SEPARATED
+    if (policy === 'SEPARATED' && req.user?.gender_access && req.user.gender_access !== 'ALL') {
+      if (group.gender && group.gender !== 'ALL' && group.gender !== req.user.gender_access) {
+        return res.status(403).json({
+          success: false,
+          message: req.t('forbidden_gender_access') || 'ليس لديك صلاحية للوصول إلى هذا الفوج'
+        });
+      }
+    }
+    const targetMonthRef = req.query.month_ref || new Date().toISOString().slice(0, 7);
 
     // Get active and transferred enrollments for this group
     const [students] = await pool.query(`
@@ -100,7 +126,84 @@ export const getGroupById = async (req, res) => {
       ORDER BY e.status ASC, s.full_name ASC
     `, [id]);
 
-    return res.json({ success: true, data: { ...group, students } });
+    // Fetch payments for this group and target month
+    const [payments] = await pool.query(`
+      SELECT 
+        student_id,
+        COALESCE(SUM(CASE WHEN payment_status = 'PAID' THEN amount ELSE 0 END), 0) AS total_paid,
+        MAX(CASE WHEN payment_status = 'EXEMPTED' THEN 1 ELSE 0 END) AS has_exemption,
+        COUNT(id) AS payment_count,
+        GROUP_CONCAT(receipt_no ORDER BY id DESC SEPARATOR ', ') AS receipt_numbers
+      FROM payments
+      WHERE group_id = ? AND academic_year_id = ? AND month_ref = ?
+      GROUP BY student_id
+    `, [group.id, group.academic_year_id, targetMonthRef]);
+
+    const paymentMap = new Map();
+    payments.forEach(p => {
+      paymentMap.set(p.student_id, p);
+    });
+
+    const isGroupFree = group.is_free === 1 || group.is_free === true || parseFloat(group.monthly_fee || 0) === 0;
+    const monthlyFee = parseFloat(group.monthly_fee || 0);
+
+    const studentsWithPayment = students.map(student => {
+      const pData = paymentMap.get(student.student_id);
+      const paidAmount = pData ? parseFloat(pData.total_paid || 0) : 0;
+      const hasExemption = (pData && pData.has_exemption === 1) || student.discount_type === 'FULL_EXEMPTION';
+
+      // Compute expected fee
+      let expectedFee = monthlyFee;
+      if (isGroupFree || student.discount_type === 'FULL_EXEMPTION') {
+        expectedFee = 0;
+      } else if (student.discount_type === 'PERCENTAGE') {
+        const pct = parseFloat(student.discount_value || 0);
+        expectedFee = Math.max(0, monthlyFee - (monthlyFee * pct / 100));
+      } else if (student.discount_type === 'FIXED_AMOUNT') {
+        const disc = parseFloat(student.discount_value || 0);
+        expectedFee = Math.max(0, monthlyFee - disc);
+      }
+      expectedFee = Math.round(expectedFee * 100) / 100;
+
+      let paymentStatus = 'UNPAID';
+      if (isGroupFree) {
+        paymentStatus = 'FREE';
+      } else if (hasExemption) {
+        paymentStatus = 'EXEMPTED';
+      } else if (paidAmount >= expectedFee && expectedFee > 0) {
+        paymentStatus = 'PAID_FULL';
+      } else if (paidAmount > 0 && paidAmount < expectedFee) {
+        paymentStatus = 'PAID_PARTIAL';
+      } else if (expectedFee === 0) {
+        paymentStatus = 'EXEMPTED';
+      } else {
+        paymentStatus = 'UNPAID';
+      }
+
+      const remainingAmount = Math.max(0, expectedFee - paidAmount);
+
+      return {
+        ...student,
+        payment_info: {
+          status: paymentStatus, // 'FREE' | 'EXEMPTED' | 'PAID_FULL' | 'PAID_PARTIAL' | 'UNPAID'
+          expected_amount: expectedFee,
+          paid_amount: paidAmount,
+          remaining_amount: remainingAmount,
+          month_ref: targetMonthRef,
+          receipt_numbers: pData?.receipt_numbers || null,
+          payment_count: pData?.payment_count || 0
+        }
+      };
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        ...group,
+        month_ref: targetMonthRef,
+        students: studentsWithPayment
+      }
+    });
   } catch (error) {
     console.error('getGroupById error:', error);
     return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
@@ -148,16 +251,38 @@ export const createGroup = async (req, res) => {
       name,
       track_type,
       subject_name,
+      gender,
       teacher_id,
       room,
       schedule,
       is_free,
       monthly_fee,
+      month_calculation_type,
+      package_quota,
       sessions
     } = req.body;
 
     if (!academic_year_id || !name || !track_type) {
       return res.status(400).json({ success: false, message: req.t('bad_request') });
+    }
+
+    const policy = await getGroupGenderPolicy();
+    let finalGender = gender;
+    if (policy === 'SEPARATED') {
+      if (!gender || !['MALE', 'FEMALE'].includes(gender)) {
+        return res.status(400).json({
+          success: false,
+          message: req.t('group_gender_required') || 'يرجى تحديد جنس الفوج (ذكور أو إناث)'
+        });
+      }
+      if (req.user?.gender_access && req.user.gender_access !== 'ALL' && req.user.gender_access !== gender) {
+        return res.status(403).json({
+          success: false,
+          message: req.t('forbidden_gender_access') || 'غير مصرح لك بإنشاء فوج لهذا الجنس'
+        });
+      }
+    } else {
+      finalGender = gender && ['MALE', 'FEMALE'].includes(gender) ? gender : 'ALL';
     }
 
     if (track_type === 'TUTORING' && hasOverlappingSessions(sessions)) {
@@ -168,20 +293,26 @@ export const createGroup = async (req, res) => {
     }
 
     const fee = is_free ? 0.00 : (monthly_fee || 0.00);
+    const validCalcTypes = ['CALENDAR_MONTH', 'PER_SESSION', 'PER_HOUR'];
+    const finalCalcType = validCalcTypes.includes(month_calculation_type) ? month_calculation_type : 'CALENDAR_MONTH';
+    const finalQuota = (finalCalcType !== 'CALENDAR_MONTH' && package_quota) ? parseInt(package_quota, 10) : null;
 
     const [result] = await pool.query(`
-      INSERT INTO groups (academic_year_id, name, track_type, subject_name, teacher_id, room, schedule, is_free, monthly_fee, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
+      INSERT INTO groups (academic_year_id, name, track_type, subject_name, gender, teacher_id, room, schedule, is_free, monthly_fee, month_calculation_type, package_quota, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
     `, [
       academic_year_id,
       name,
       track_type,
       subject_name || null,
+      finalGender,
       teacher_id || null,
       room || null,
       schedule || null,
       is_free ? 1 : 0,
-      fee
+      fee,
+      finalCalcType,
+      finalQuota
     ]);
 
     const newGroupId = result.insertId;
@@ -200,30 +331,36 @@ export const createGroup = async (req, res) => {
             const startVal = s.start_time.length === 5 ? `${s.start_time}:00` : s.start_time;
             const endVal = s.end_time.length === 5 ? `${s.end_time}:00` : s.end_time;
             await pool.query(`
-              INSERT INTO timetable_sessions (academic_year_id, group_id, classroom_id, teacher_id, day_of_week, start_time, end_time, notes)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              INSERT INTO timetable_sessions (academic_year_id, group_id, classroom_id, teacher_id, day_of_week, start_time, end_time)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
             `, [
               academic_year_id,
               newGroupId,
               classroomId,
-              teacher_id ? parseInt(teacher_id, 10) : null,
+              teacher_id || null,
               s.day_of_week,
               startVal,
-              endVal,
-              track_type === 'PRESCHOOL' ? 'دوام تحضيري يومي' : (subject_name || 'حصة أسبوعية')
+              endVal
             ]);
           }
         }
-      } catch (ttErr) {
-        console.warn('Auto timetable sync on createGroup non-fatal error:', ttErr.message);
+      } catch (sessErr) {
+        console.error('Failed to auto-create timetable_sessions from group creation:', sessErr);
       }
     }
+
+    logActivity(req, {
+      action_type: 'CREATE',
+      data_type: 'GROUP',
+      entity_id: newGroupId,
+      entity_name: name,
+      details: `إنشاء فوج جديد: "${name}" (${track_type}) [الجنس: ${finalGender}] - الاشتراك: ${is_free ? 'مجاني' : fee + ' دج'}`
+    });
 
     return res.status(201).json({
       success: true,
       message: req.t('group_created_success'),
-      groupId: newGroupId,
-      status: 'PENDING'
+      data: { id: newGroupId, ...req.body, gender: finalGender }
     });
   } catch (error) {
     console.error('createGroup error:', error);
@@ -245,14 +382,36 @@ export const updateGroup = async (req, res) => {
       name = current.name,
       track_type = current.track_type,
       subject_name = current.subject_name,
+      gender,
       teacher_id,
       room = current.room,
       schedule = current.schedule,
       is_free,
       monthly_fee,
+      month_calculation_type,
+      package_quota,
       status,
       sessions
     } = req.body;
+
+    const policy = await getGroupGenderPolicy();
+    let finalGender = gender !== undefined ? gender : current.gender;
+    if (policy === 'SEPARATED') {
+      if (!finalGender || !['MALE', 'FEMALE'].includes(finalGender)) {
+        return res.status(400).json({
+          success: false,
+          message: req.t('group_gender_required') || 'يرجى تحديد جنس الفوج (ذكور أو إناث)'
+        });
+      }
+      if (req.user?.gender_access && req.user.gender_access !== 'ALL' && req.user.gender_access !== finalGender) {
+        return res.status(403).json({
+          success: false,
+          message: req.t('forbidden_gender_access') || 'غير مصرح لك بتعديل فوج لهذا الجنس'
+        });
+      }
+    } else {
+      finalGender = finalGender && ['MALE', 'FEMALE'].includes(finalGender) ? finalGender : (current.gender || 'ALL');
+    }
 
     if (track_type === 'TUTORING' && hasOverlappingSessions(sessions)) {
       return res.status(400).json({
@@ -267,19 +426,30 @@ export const updateGroup = async (req, res) => {
     const validStatuses = ['PENDING', 'ACTIVE', 'STOPPED', 'ARCHIVED'];
     const finalStatus = (status && validStatuses.includes(status)) ? status : current.status;
 
+    const validCalcTypes = ['CALENDAR_MONTH', 'PER_SESSION', 'PER_HOUR'];
+    const finalCalcType = (month_calculation_type && validCalcTypes.includes(month_calculation_type))
+      ? month_calculation_type 
+      : (current.month_calculation_type || 'CALENDAR_MONTH');
+    const finalQuota = package_quota !== undefined 
+      ? (package_quota ? parseInt(package_quota, 10) : null) 
+      : current.package_quota;
+
     await pool.query(`
       UPDATE groups 
-      SET name = ?, track_type = ?, subject_name = ?, teacher_id = ?, room = ?, schedule = ?, is_free = ?, monthly_fee = ?, status = ?
+      SET name = ?, track_type = ?, subject_name = ?, gender = ?, teacher_id = ?, room = ?, schedule = ?, is_free = ?, monthly_fee = ?, month_calculation_type = ?, package_quota = ?, status = ?
       WHERE id = ?
     `, [
       name,
       track_type,
       subject_name || null,
+      finalGender,
       finalTeacherId,
       room || null,
       schedule || null,
       finalIsFree,
       finalMonthlyFee,
+      finalCalcType,
+      finalQuota,
       finalStatus,
       id
     ]);
@@ -321,6 +491,14 @@ export const updateGroup = async (req, res) => {
       }
     }
 
+    logActivity(req, {
+      action_type: 'UPDATE',
+      data_type: 'GROUP',
+      entity_id: id,
+      entity_name: name,
+      details: `تعديل بيانات الفوج: "${name}" (${track_type})`
+    });
+
     return res.json({ success: true, message: req.t('group_updated_success') });
   } catch (error) {
     console.error('updateGroup error:', error);
@@ -357,6 +535,14 @@ export const changeGroupStatus = async (req, res) => {
 
     await pool.query('UPDATE groups SET status = ? WHERE id = ?', [status, id]);
 
+    logActivity(req, {
+      action_type: 'UPDATE',
+      data_type: 'GROUP',
+      entity_id: id,
+      entity_name: existing[0].name,
+      details: `تغيير حالة الفوج "${existing[0].name}" من ${currentStatus} إلى ${status}`
+    });
+
     return res.json({
       success: true,
       message: req.t('group_status_updated_success'),
@@ -372,7 +558,17 @@ export const changeGroupStatus = async (req, res) => {
 export const deleteGroup = async (req, res) => {
   try {
     const { id } = req.params;
+    const [existing] = await pool.query('SELECT name FROM groups WHERE id = ?', [id]);
     await pool.query('DELETE FROM groups WHERE id = ?', [id]);
+
+    logActivity(req, {
+      action_type: 'DELETE',
+      data_type: 'GROUP',
+      entity_id: id,
+      entity_name: existing?.[0]?.name || id,
+      details: `حذف الفوج: "${existing?.[0]?.name || id}"`
+    });
+
     return res.json({ success: true, message: req.t('success') });
   } catch (error) {
     console.error('deleteGroup error:', error);
@@ -390,11 +586,38 @@ export const enrollStudentInGroup = async (req, res) => {
       return res.status(400).json({ success: false, message: req.t('bad_request') });
     }
 
-    const [groupRows] = await pool.query('SELECT academic_year_id FROM groups WHERE id = ?', [group_id]);
+    const [groupRows] = await pool.query('SELECT academic_year_id, gender, name FROM groups WHERE id = ?', [group_id]);
     if (groupRows.length === 0) {
       return res.status(404).json({ success: false, message: req.t('group_not_found') });
     }
-    const academic_year_id = groupRows[0].academic_year_id;
+    const targetGroup = groupRows[0];
+    const academic_year_id = targetGroup.academic_year_id;
+
+    // Fetch student info
+    const [studentRows] = await pool.query('SELECT id, gender, full_name FROM students WHERE id = ?', [student_id]);
+    if (studentRows.length === 0) {
+      return res.status(404).json({ success: false, message: req.t('student_not_found') });
+    }
+    const targetStudent = studentRows[0];
+
+    // Check gender policy & matching
+    const policy = await getGroupGenderPolicy();
+    if (policy === 'SEPARATED') {
+      if (targetGroup.gender && targetGroup.gender !== 'ALL') {
+        if (targetStudent.gender !== targetGroup.gender) {
+          return res.status(400).json({
+            success: false,
+            message: req.t('student_gender_mismatch_group') || 'لا يمكن تسجيل طالب في فوج مخصص للجنس الآخر (يجب تطابق الجنس)'
+          });
+        }
+      }
+      if (req.user?.gender_access && req.user.gender_access !== 'ALL' && req.user.gender_access !== targetStudent.gender) {
+        return res.status(403).json({
+          success: false,
+          message: req.t('forbidden_gender_access') || 'غير مصرح لك بإدارة هذا الطالب'
+        });
+      }
+    }
 
     // Check existing active enrollment
     const [existing] = await pool.query(`
@@ -412,6 +635,14 @@ export const enrollStudentInGroup = async (req, res) => {
       INSERT INTO enrollments (academic_year_id, student_id, group_id, enrolled_at, status, discount_type, discount_value)
       VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?)
     `, [academic_year_id, student_id, group_id, today, discount_type, discount_value]);
+
+    logActivity(req, {
+      action_type: 'ENROLL',
+      data_type: 'ENROLLMENT',
+      entity_id: result.insertId,
+      entity_name: targetStudent.full_name,
+      details: `تسجيل الطالب "${targetStudent.full_name}" في الفوج "${targetGroup.name}"`
+    });
 
     return res.status(201).json({
       success: true,

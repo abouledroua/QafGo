@@ -22,10 +22,14 @@ import RolloverPage from './pages/RolloverPage';
 import SettingsPage from './pages/SettingsPage';
 import TeachersPage from './pages/TeachersPage';
 import ClassroomsTimetablePage from './pages/ClassroomsTimetablePage';
+import AuditLogsPage from './pages/AuditLogsPage';
+import HelpPage from './pages/HelpPage';
 
 import { useAuth } from './context/AuthContext';
+import { DeviceProvider } from './context/DeviceContext';
 import LoginPage from './pages/LoginPage';
 import MandatoryAcademicYearModal from './components/MandatoryAcademicYearModal';
+import MandatoryDeviceModal from './components/MandatoryDeviceModal';
 
 function AppContent() {
   const { dir, t } = useLanguage();
@@ -48,6 +52,9 @@ function AppContent() {
 
   return (
     <div className="min-h-screen flex flex-col bg-surface text-text-main transition-colors" dir={dir}>
+      {/* Mandatory Device Registration Modal for unverified/unregistered workstation */}
+      <MandatoryDeviceModal />
+
       {/* Mandatory Academic Year Modal when no academic year exists */}
       <MandatoryAcademicYearModal />
 
@@ -73,6 +80,8 @@ function AppContent() {
             <Route path="/rollover" element={<RolloverPage />} />
             <Route path="/teachers" element={<TeachersPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/logs" element={<AuditLogsPage />} />
+            <Route path="/help" element={<HelpPage />} />
           </Routes>
         </main>
       </div>
@@ -87,18 +96,20 @@ export default function App() {
         <NotificationProvider>
           <SettingsProvider>
             <AuthProvider>
-              <AcademicYearProvider>
-                <SidebarProvider>
-                  <BrowserRouter
-                    future={{
-                      v7_startTransition: true,
-                      v7_relativeSplatPath: true
-                    }}
-                  >
-                    <AppContent />
-                  </BrowserRouter>
-                </SidebarProvider>
-              </AcademicYearProvider>
+              <DeviceProvider>
+                <AcademicYearProvider>
+                  <SidebarProvider>
+                    <BrowserRouter
+                      future={{
+                        v7_startTransition: true,
+                        v7_relativeSplatPath: true
+                      }}
+                    >
+                      <AppContent />
+                    </BrowserRouter>
+                  </SidebarProvider>
+                </AcademicYearProvider>
+              </DeviceProvider>
             </AuthProvider>
           </SettingsProvider>
         </NotificationProvider>

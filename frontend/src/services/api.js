@@ -15,6 +15,17 @@ api.interceptors.request.use((config) => {
   }
   const lang = localStorage.getItem('qafgo_lang') || 'ar';
   config.headers['Accept-Language'] = lang;
+
+  const posteName = localStorage.getItem('qafgo_poste_name');
+  if (posteName) {
+    config.headers['X-Poste-Name'] = encodeURIComponent(posteName);
+  }
+
+  const deviceKey = localStorage.getItem('qafgo_device_key');
+  if (deviceKey) {
+    config.headers['X-Device-Key'] = deviceKey.trim().toUpperCase();
+  }
+
   return config;
 }, (error) => {
   return Promise.reject(error);

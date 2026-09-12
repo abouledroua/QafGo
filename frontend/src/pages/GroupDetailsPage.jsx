@@ -3,6 +3,8 @@ import { useParams, Link } from 'react-router-dom';
 import api from '../services/api';
 import { useNotification } from '../context/NotificationContext';
 import { useLanguage } from '../context/LanguageContext';
+import { useSettings } from '../context/SettingsContext';
+import { useAuth } from '../context/AuthContext';
 import { 
   Layers, 
   Users, 
@@ -32,19 +34,25 @@ import {
   Pause,
   RotateCcw,
   Archive,
-  Printer
+  Printer,
+  Wallet,
+  CreditCard,
+  XCircle
 } from 'lucide-react';
 import TransferModal from '../components/TransferModal';
 import SearchableSelect from '../components/SearchableSelect';
 import GroupScheduleBuilder from '../components/GroupScheduleBuilder';
 import GroupEditModal from '../components/GroupEditModal';
 import GroupRosterPrintModal from '../components/GroupRosterPrintModal';
+import ReceiptModal from '../components/ReceiptModal';
 import { DateTimeFormatter } from '../utils/dateTimeFormatter';
 
 export default function GroupDetailsPage() {
   const { id } = useParams();
   const { showNotification, confirm } = useNotification();
-  const { t, isRtl, dir } = useLanguage();
+  const { t, isRtl, dir, currency } = useLanguage();
+  const { settings } = useSettings();
+  const { user: authUser } = useAuth();
 
   const [group, setGroup] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -121,8 +129,14 @@ export default function GroupDetailsPage() {
   }, [group?.students]);
 
   const availableStudentsForEnroll = useMemo(() => {
-    return allStudents.filter(s => !enrolledStudentIds.has(s.id));
-  }, [allStudents, enrolledStudentIds]);
+    return allStudents.filter(s => {
+      if (enrolledStudentIds.has(s.id)) return false;
+      if (settings?.group_gender_policy === 'SEPARATED' && group?.gender && group.gender !== 'ALL') {
+        return s.gender === group.gender;
+      }
+      return true;
+    });
+  }, [allStudents, enrolledStudentIds, settings?.group_gender_policy, group?.gender]);
 
   // Teachers matching this group track
   const filteredGroupTeachers = useMemo(() => {
@@ -164,10 +178,24 @@ export default function GroupDetailsPage() {
   const [evalMaxScore, setEvalMaxScore] = useState(20);
   const [evalTeacherNotes, setEvalTeacherNotes] = useState('');
 
-  const fetchGroupDetails = useCallback(async () => {
+  // Direct Fee Payment Modal States
+  const [selectedFeeMonth, setSelectedFeeMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [directPayModalOpen, setDirectPayModalOpen] = useState(false);
+  const [payingStudent, setPayingStudent] = useState(null);
+  const [paymentForm, setPaymentForm] = useState({
+    amount: '',
+    payment_date: new Date().toISOString().split('T')[0],
+    month_ref: new Date().toISOString().slice(0, 7),
+    notes: ''
+  });
+  const [payingSubmitting, setPayingSubmitting] = useState(false);
+  const [receiptToPreview, setReceiptToPreview] = useState(null);
+  const [receiptModalOpen, setReceiptModalOpen] = useState(false);
+
+  const fetchGroupDetails = useCallback(async (month = selectedFeeMonth) => {
     try {
       setLoading(true);
-      const res = await api.get(`/groups/${id}`);
+      const res = await api.get(`/groups/${id}?month_ref=${month}`);
       if (res.success) {
         setGroup(res.data);
         if (res.data.students?.length > 0 && !evalStudentEnrollmentId) {
@@ -179,11 +207,68 @@ export default function GroupDetailsPage() {
     } finally {
       setLoading(false);
     }
-  }, [id, showNotification]);
+  }, [id, selectedFeeMonth, showNotification, t, evalStudentEnrollmentId]);
 
   useEffect(() => {
     fetchGroupDetails();
   }, [fetchGroupDetails]);
+
+  const handleOpenDirectPay = (student) => {
+    setPayingStudent(student);
+    const remaining = student.payment_info?.remaining_amount !== undefined 
+      ? student.payment_info.remaining_amount 
+      : (group?.is_free ? 0 : parseFloat(group?.monthly_fee || 0));
+    setPaymentForm({
+      amount: remaining > 0 ? remaining : (student.payment_info?.expected_amount || parseFloat(group?.monthly_fee || 0)),
+      payment_date: new Date().toISOString().split('T')[0],
+      month_ref: selectedFeeMonth,
+      notes: ''
+    });
+    setDirectPayModalOpen(true);
+  };
+
+  const handleSubmitDirectPayment = async (e) => {
+    e.preventDefault();
+    if (!payingStudent || !group) return;
+    try {
+      setPayingSubmitting(true);
+      const payload = {
+        academic_year_id: group.academic_year_id,
+        student_id: payingStudent.student_id,
+        group_id: group.id,
+        amount: parseFloat(paymentForm.amount || 0),
+        payment_date: paymentForm.payment_date,
+        month_ref: paymentForm.month_ref,
+        payment_status: 'PAID',
+        notes: paymentForm.notes || t('group_details.default_pay_notes', { group: group.name }, `دفع اشتراك فوج ${group.name}`)
+      };
+      const res = await api.post('/finance/payments', payload);
+      if (res.success) {
+        showNotification(res.message || t('finance.payment_recorded_success', 'تم تسجيل وصل الدفع بنجاح'), 'success');
+        setDirectPayModalOpen(false);
+        await fetchGroupDetails(paymentForm.month_ref);
+        if (res.data?.receipt_no) {
+          setReceiptToPreview({
+            id: res.data.id,
+            receipt_no: res.data.receipt_no,
+            amount: res.data.amount,
+            payment_date: paymentForm.payment_date,
+            month_ref: paymentForm.month_ref,
+            payment_status: 'PAID',
+            student_name: payingStudent.student_name,
+            reg_no: payingStudent.reg_no,
+            group_name: group.name,
+            notes: paymentForm.notes
+          });
+          setReceiptModalOpen(true);
+        }
+      }
+    } catch (err) {
+      showNotification(err.message || t('common.error'), 'error');
+    } finally {
+      setPayingSubmitting(false);
+    }
+  };
 
   // Load All Teachers for Substitution & Reassignment
   const fetchTeachers = useCallback(async () => {
@@ -649,14 +734,40 @@ export default function GroupDetailsPage() {
                 </span>
               </span>
 
+              {/* Group Gender Badge (when policy is SEPARATED) */}
+              {settings?.group_gender_policy === 'SEPARATED' && (
+                <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-black border ${
+                  group.gender === 'FEMALE'
+                    ? 'bg-pink-500/10 text-pink-600 border-pink-500/25'
+                    : 'bg-blue-500/10 text-blue-600 border-blue-500/25'
+                }`}>
+                  <span>{group.gender === 'FEMALE' ? '♀' : '♂'}</span>
+                  <span>{group.gender === 'FEMALE' ? t('common.female') : t('common.male')}</span>
+                </span>
+              )}
+
               {group.is_free ? (
                 <span className="px-3 py-1 rounded-full text-xs font-black bg-emerald-500/15 text-emerald-600 border border-emerald-500/25">
                   {t('group_details.fully_free_badge')}
                 </span>
               ) : (
-                <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-surface text-text-main border border-border">
-                  {t('group_details.monthly_fee_badge', { fee: parseFloat(group.monthly_fee).toLocaleString() })}
-                </span>
+                <div className="inline-flex items-center gap-2 flex-wrap">
+                  <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-surface text-text-main border border-border">
+                    {t('group_details.monthly_fee_badge', { fee: parseFloat(group.monthly_fee).toLocaleString() })}
+                  </span>
+                  {group.month_calculation_type === 'PER_SESSION' && (
+                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-purple-500/10 text-purple-600 border border-purple-500/25 flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5" />
+                      <span>{group.package_quota ? t('tracks.badge_per_session', { count: group.package_quota }) : t('tracks.calc_per_session')}</span>
+                    </span>
+                  )}
+                  {group.month_calculation_type === 'PER_HOUR' && (
+                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-500/10 text-blue-600 border border-blue-500/25 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>{group.package_quota ? t('tracks.badge_per_hour', { count: group.package_quota }) : t('tracks.calc_per_hour')}</span>
+                    </span>
+                  )}
+                </div>
               )}
 
               {/* Status Pill */}
@@ -964,15 +1075,35 @@ export default function GroupDetailsPage() {
                 {t('group_details.tab_roster_count', { count: group.students?.length || 0 })}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => setPrintRosterModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface hover:bg-surface-hover text-text-main border border-border text-xs font-bold transition-all shadow-xs cursor-pointer"
-              title={t('group_details.print_roster_btn')}
-            >
-              <Printer className="w-3.5 h-3.5 text-primary" />
-              <span>{t('group_details.print_roster_btn')}</span>
-            </button>
+            <div className="flex items-center gap-3 flex-wrap">
+              {!group.is_free && (
+                <div className="flex items-center gap-2 bg-surface px-3 py-1.5 rounded-xl border border-border shadow-xs">
+                  <Calendar className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                  <span className="text-xs font-bold text-text-muted whitespace-nowrap">
+                    {t('group_details.roster_month_label')}
+                  </span>
+                  <input
+                    type="month"
+                    value={selectedFeeMonth}
+                    onChange={(e) => {
+                      const newMonth = e.target.value;
+                      setSelectedFeeMonth(newMonth);
+                      fetchGroupDetails(newMonth);
+                    }}
+                    className="bg-transparent text-xs font-bold text-text-main focus:outline-none cursor-pointer"
+                  />
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setPrintRosterModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface hover:bg-surface-hover text-text-main border border-border text-xs font-bold transition-all shadow-xs cursor-pointer"
+                title={t('group_details.print_roster_btn')}
+              >
+                <Printer className="w-3.5 h-3.5 text-primary" />
+                <span>{t('group_details.print_roster_btn')}</span>
+              </button>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-start text-sm">
@@ -982,7 +1113,9 @@ export default function GroupDetailsPage() {
                   <th className="p-4 text-start">{t('group_details.table_student_name')}</th>
                   <th className="p-4 text-start">{t('group_details.table_academic_level')}</th>
                   <th className="p-4 text-start">{t('group_details.table_enrollment_status')}</th>
-                  <th className="p-4 text-start">{t('group_details.table_fee_status')}</th>
+                  <th className="p-4 text-start">
+                    {group.is_free ? t('group_details.table_fee_status') : t('group_details.table_payment_status')}
+                  </th>
                   <th className="p-4 text-start">{t('group_details.table_guardian')}</th>
                   <th className="p-4 text-center">{t('group_details.table_actions')}</th>
                 </tr>
@@ -998,6 +1131,10 @@ export default function GroupDetailsPage() {
                   group.students?.map((student) => {
                     const isActive = student.enrollment_status === 'ACTIVE';
                     const isTransferred = student.enrollment_status === 'TRANSFERRED';
+                    const isFullyExempt = student.discount_type === 'FULL_EXEMPTION' || student.payment_info?.status === 'EXEMPTED';
+                    const isPaidFull = student.payment_info?.status === 'PAID_FULL';
+                    const isPaidPartial = student.payment_info?.status === 'PAID_PARTIAL';
+                    const isUnpaid = !group.is_free && !isFullyExempt && !isPaidFull && !isPaidPartial;
 
                     return (
                       <tr key={student.enrollment_id} className="hover:bg-surface/50 transition-colors">
@@ -1038,18 +1175,59 @@ export default function GroupDetailsPage() {
                         </td>
                         <td className="p-4 text-xs">
                           {group.is_free ? (
-                            <span className="text-emerald-600 font-bold">{t('group_details.fully_free_group')}</span>
-                          ) : student.discount_type === 'FULL_EXEMPTION' ? (
-                            <span className="inline-flex items-center gap-1 font-bold text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded">
-                              <Award className="w-3 h-3" />
-                              {t('group_details.full_exemption_badge')}
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold font-mono text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 text-xs shadow-xs">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+                              <span>0 {currency}</span>
                             </span>
-                          ) : student.discount_type === 'PERCENTAGE' ? (
-                            <span className="font-bold text-primary">{t('group_details.discount_percent_badge', { val: student.discount_value })}</span>
-                          ) : student.discount_type === 'FIXED_AMOUNT' ? (
-                            <span className="font-bold text-primary">{t('group_details.discount_fixed_badge', { val: student.discount_value })}</span>
+                          ) : isFullyExempt ? (
+                            <div className="space-y-1">
+                              <span className="inline-flex items-center gap-1.5 font-bold text-sky-700 dark:text-sky-400 bg-sky-500/10 border border-sky-500/20 px-2.5 py-1 rounded-lg text-xs font-mono shadow-xs">
+                                <Award className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 flex-shrink-0" />
+                                <span>0 {currency}</span>
+                              </span>
+                              {student.payment_info?.receipt_numbers && (
+                                <div className="text-[11px] font-mono text-text-muted ps-1" title={t('group_details.receipt_numbers_tooltip', { receipts: student.payment_info.receipt_numbers })}>
+                                  ({student.payment_info.receipt_numbers})
+                                </div>
+                              )}
+                            </div>
+                          ) : isPaidFull ? (
+                            <div className="space-y-1">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold font-mono text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 text-xs shadow-xs">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+                                <span>{student.payment_info?.paid_amount?.toLocaleString()} {currency}</span>
+                              </span>
+                              {student.payment_info?.receipt_numbers && (
+                                <div className="font-mono text-text-muted text-[10px] truncate max-w-[120px] ps-1" title={student.payment_info.receipt_numbers}>
+                                  ({student.payment_info.receipt_numbers})
+                                </div>
+                              )}
+                            </div>
+                          ) : isPaidPartial ? (
+                            <div className="space-y-1">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold font-mono text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 text-xs shadow-xs">
+                                <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                                <span>{student.payment_info?.paid_amount?.toLocaleString()} / {student.payment_info?.expected_amount?.toLocaleString()} {currency}</span>
+                              </span>
+                              <div className="font-mono text-[11px] font-bold text-rose-600 dark:text-rose-400 ps-1">
+                                -{student.payment_info?.remaining_amount?.toLocaleString()} {currency}
+                              </div>
+                            </div>
                           ) : (
-                            <span className="text-text-muted">{t('group_details.full_fee_badge')}</span>
+                            /* UNPAID: Show expected money value in red */
+                            <div className="space-y-1">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold font-mono text-rose-700 dark:text-rose-400 bg-rose-500/10 border border-rose-500/20 text-xs shadow-xs">
+                                <XCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 flex-shrink-0" />
+                                <span>{student.payment_info?.expected_amount?.toLocaleString()} {currency}</span>
+                              </span>
+                              {(student.discount_type === 'PERCENTAGE' || student.discount_type === 'FIXED_AMOUNT') && (
+                                <div className="text-[10px] text-text-muted font-normal ps-1">
+                                  {student.discount_type === 'PERCENTAGE' 
+                                    ? `(-${student.discount_value}%)` 
+                                    : `(-${student.discount_value} ${currency})`}
+                                </div>
+                              )}
+                            </div>
                           )}
                         </td>
                         <td className="p-4 text-xs text-text-muted">
@@ -1057,7 +1235,29 @@ export default function GroupDetailsPage() {
                           <div className="font-mono text-text-main mt-0.5">{student.guardian_phone}</div>
                         </td>
                         <td className="p-4 text-center">
-                          <div className="flex items-center justify-center gap-2">
+                          <div className="flex items-center justify-center gap-2 flex-wrap">
+                            {/* Direct Pay Action Button for Paid Groups */}
+                            {!group.is_free && isActive && !isFullyExempt && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenDirectPay(student)}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer ${
+                                  isUnpaid || isPaidPartial
+                                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white animate-pulse-subtle'
+                                    : 'bg-surface hover:bg-surface-hover text-emerald-700 dark:text-emerald-400 border border-emerald-500/30'
+                                }`}
+                                title={t('group_details.pay_now_btn_title')}
+                              >
+                                <Wallet className="w-3.5 h-3.5" />
+                                <span>{t('group_details.pay_now_btn')}</span>
+                                {student.payment_info?.remaining_amount > 0 && (
+                                  <span className="font-mono text-[10px] px-1 py-0.2 bg-black/20 rounded">
+                                    {student.payment_info.remaining_amount.toLocaleString()}
+                                  </span>
+                                )}
+                              </button>
+                            )}
+
                             <Link
                               to={`/students/${student.student_id}`}
                               className="px-3 py-1.5 rounded-lg bg-surface hover:bg-primary hover:text-white text-xs font-bold border border-border transition-all"
@@ -1073,9 +1273,9 @@ export default function GroupDetailsPage() {
                                   setSelectedEnrollmentForTransfer({
                                     id: student.enrollment_id,
                                     student_id: student.student_id,
-                                    group_id: group.id,
-                                    group_name: group.name,
-                                    academic_year_id: group.academic_year_id,
+                                    group_id: group?.id || id,
+                                    group_name: group?.name || '',
+                                    academic_year_id: group?.academic_year_id,
                                     enrolled_at: student.enrolled_at,
                                     discount_type: student.discount_type,
                                     discount_value: student.discount_value
@@ -1665,6 +1865,7 @@ export default function GroupDetailsPage() {
           onClose={() => setTransferModalOpen(false)}
           student={selectedStudentForTransfer}
           currentEnrollment={selectedEnrollmentForTransfer}
+          sourceGroupId={group?.id || id}
           onSuccess={fetchGroupDetails}
         />
       )}
@@ -1692,6 +1893,21 @@ export default function GroupDetailsPage() {
             </div>
             
             <form onSubmit={handleEnrollStudent} className="space-y-4">
+              {/* Gender restriction notice (when policy is SEPARATED) */}
+              {settings?.group_gender_policy === 'SEPARATED' && group.gender && group.gender !== 'ALL' && (
+                <div className={`p-3 rounded-2xl border text-xs font-bold flex items-center gap-2 ${
+                  group.gender === 'MALE'
+                    ? 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/25'
+                    : 'bg-pink-500/10 text-pink-700 dark:text-pink-300 border-pink-500/25'
+                }`}>
+                  <span className="text-base">{group.gender === 'MALE' ? '♂' : '♀'}</span>
+                  <span>
+                    {group.gender === 'MALE' 
+                      ? t('group_details.group_gender_notice_male')
+                      : t('group_details.group_gender_notice_female')}
+                  </span>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-bold text-text-main mb-1">
                   {t('group_details.select_student_label')} <span className="text-rose-500">*</span>
@@ -2110,6 +2326,207 @@ export default function GroupDetailsPage() {
         onClose={() => setPrintRosterModalOpen(false)}
         group={group}
       />
+
+      {/* Direct Payment Modal */}
+      {directPayModalOpen && payingStudent && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn"
+          onClick={() => !payingSubmitting && setDirectPayModalOpen(false)}
+        >
+          <div 
+            className="w-full max-w-lg bg-surface-card border border-border rounded-3xl shadow-2xl overflow-hidden p-6 space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center border border-emerald-500/20 shadow-xs">
+                  <Wallet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-text-main">
+                    {t('group_details.direct_pay_modal_title')}
+                  </h3>
+                  <p className="text-xs text-text-muted">
+                    {t('group_details.direct_pay_modal_desc')}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={payingSubmitting}
+                onClick={() => setDirectPayModalOpen(false)}
+                className="p-1.5 text-text-muted hover:text-text-main hover:bg-surface rounded-xl transition-colors"
+                title={t('common.close')}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Student & Fee Summary Card */}
+            <div className="p-4 rounded-2xl bg-surface/80 border border-border/80 space-y-3">
+              <div className="flex items-center gap-3">
+                {payingStudent.photo_url ? (
+                  <img
+                    src={payingStudent.photo_url}
+                    alt={payingStudent.student_name}
+                    className="w-11 h-11 rounded-2xl object-cover border border-border shadow-xs flex-shrink-0"
+                  />
+                ) : (
+                  <div className="w-11 h-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center font-bold text-sm flex-shrink-0 border border-primary/20">
+                    {payingStudent.student_name?.charAt(0)}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-bold text-text-main truncate">
+                    {payingStudent.student_name}
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-text-muted mt-0.5">
+                    <span className="font-mono font-bold text-primary">{payingStudent.reg_no}</span>
+                    <span>•</span>
+                    <span className="truncate">{group.name}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border/60 text-center">
+                <div className="p-2 rounded-xl bg-surface-card border border-border/60">
+                  <div className="text-[10px] font-bold text-text-muted">
+                    {t('group_details.direct_pay_expected_fee')}
+                  </div>
+                  <div className="text-xs font-bold text-text-main font-mono mt-0.5">
+                    {payingStudent.payment_info?.expected_amount?.toLocaleString()} {currency}
+                  </div>
+                </div>
+
+                <div className="p-2 rounded-xl bg-surface-card border border-border/60">
+                  <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                    {t('group_details.direct_pay_already_paid')}
+                  </div>
+                  <div className="text-xs font-bold text-emerald-600 dark:text-emerald-400 font-mono mt-0.5">
+                    {payingStudent.payment_info?.paid_amount?.toLocaleString() || 0} {currency}
+                  </div>
+                </div>
+
+                <div className="p-2 rounded-xl bg-surface-card border border-border/60">
+                  <div className="text-[10px] font-bold text-rose-600 dark:text-rose-400">
+                    {t('group_details.direct_pay_remaining_due')}
+                  </div>
+                  <div className="text-xs font-bold text-rose-600 dark:text-rose-400 font-mono mt-0.5">
+                    {payingStudent.payment_info?.remaining_amount?.toLocaleString() || 0} {currency}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Payment Form */}
+            <form onSubmit={handleSubmitDirectPayment} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-text-main mb-1.5">
+                    {t('group_details.direct_pay_month_label')} <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="month"
+                    required
+                    value={paymentForm.month_ref}
+                    onChange={(e) => setPaymentForm(prev => ({ ...prev, month_ref: e.target.value }))}
+                    className="w-full p-2.5 bg-surface border border-border rounded-xl text-xs font-bold text-text-main focus:outline-none focus:border-primary"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-text-main mb-1.5">
+                    {t('group_details.direct_pay_date_label')} <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={paymentForm.payment_date}
+                    onChange={(e) => setPaymentForm(prev => ({ ...prev, payment_date: e.target.value }))}
+                    className="w-full p-2.5 bg-surface border border-border rounded-xl text-xs font-bold text-text-main focus:outline-none focus:border-primary"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-text-main mb-1.5">
+                  {t('group_details.direct_pay_amount_label')} <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="1"
+                    step="any"
+                    required
+                    value={paymentForm.amount}
+                    onChange={(e) => setPaymentForm(prev => ({ ...prev, amount: e.target.value }))}
+                    className="w-full p-3 bg-surface border border-border rounded-xl text-base font-bold font-mono text-text-main focus:outline-none focus:border-primary"
+                    placeholder="1500"
+                  />
+                  <div className="absolute inset-y-0 end-0 pe-4 flex items-center pointer-events-none text-xs font-bold text-text-muted">
+                    {currency}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-text-main mb-1.5">
+                  {t('group_details.direct_pay_notes_label')}
+                </label>
+                <input
+                  type="text"
+                  placeholder={t('group_details.direct_pay_notes_placeholder')}
+                  value={paymentForm.notes}
+                  onChange={(e) => setPaymentForm(prev => ({ ...prev, notes: e.target.value }))}
+                  className="w-full p-2.5 bg-surface border border-border rounded-xl text-xs text-text-main focus:outline-none focus:border-primary"
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-3 pt-3 border-t border-border">
+                <button
+                  type="button"
+                  disabled={payingSubmitting}
+                  onClick={() => setDirectPayModalOpen(false)}
+                  className="px-4 py-2 text-xs font-bold text-text-muted hover:text-text-main bg-surface rounded-xl border border-border transition-colors cursor-pointer"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="submit"
+                  disabled={payingSubmitting || !paymentForm.amount}
+                  className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  {payingSubmitting ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>{t('group_details.direct_pay_submitting')}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Wallet className="w-4 h-4" />
+                      <span>{t('group_details.direct_pay_submit_btn')}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Receipt Modal for newly recorded payment */}
+      {receiptModalOpen && receiptToPreview && (
+        <ReceiptModal
+          isOpen={receiptModalOpen}
+          onClose={() => {
+            setReceiptModalOpen(false);
+            setReceiptToPreview(null);
+          }}
+          payment={receiptToPreview}
+        />
+      )}
 
     </div>
   );

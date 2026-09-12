@@ -19,7 +19,8 @@ import {
   PanelRightClose,
   PanelRightOpen,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  HelpCircle
 } from 'lucide-react';
 
 export default function Navbar() {
@@ -150,6 +151,18 @@ export default function Navbar() {
 
           {/* 2. Language Selector */}
           <LanguageSelector />
+
+          {/* Help & User Guide Button */}
+          <button
+            type="button"
+            onClick={() => navigate('/help')}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-2xl bg-surface hover:bg-surface-hover border border-border text-xs font-bold text-text-muted hover:text-primary transition-colors shadow-sm cursor-pointer"
+            title={t('sidebar.help', 'دليل الاستخدام')}
+            aria-label={t('sidebar.help', 'دليل الاستخدام')}
+          >
+            <HelpCircle className="w-4 h-4 text-primary" />
+            <span className="hidden md:inline">{t('sidebar.help', 'دليل الاستخدام')}</span>
+          </button>
 
           {/* 3. Themes Switcher Dropdown */}
           <div className="hidden sm:block relative" ref={themeRef}>

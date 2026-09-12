@@ -1,4 +1,6 @@
 import pool from '../config/db.js';
+import { logActivity } from '../utils/auditLogger.js';
+import { getGroupGenderPolicy } from './settingsController.js';
 
 export const executeTransfer = async (req, res) => {
   const {
@@ -44,7 +46,7 @@ export const executeTransfer = async (req, res) => {
       await connection.rollback();
       return res.status(400).json({
         success: false,
-        message: req.t('bad_request')
+        message: req.t('transfer_same_group_error')
       });
     }
 
@@ -59,6 +61,20 @@ export const executeTransfer = async (req, res) => {
         success: false,
         message: req.t('group_not_found')
       });
+    }
+
+    const targetGroup = targetGroupRows[0];
+    const policy = await getGroupGenderPolicy();
+
+    if (policy === 'SEPARATED' && targetGroup.gender && targetGroup.gender !== 'ALL') {
+      const [sRows] = await connection.query('SELECT gender FROM students WHERE id = ?', [student_id]);
+      if (sRows.length > 0 && sRows[0].gender !== targetGroup.gender) {
+        await connection.rollback();
+        return res.status(400).json({
+          success: false,
+          message: req.t('student_gender_mismatch_group') || 'لا يمكن تحويل الطالب إلى فوج مخصص للجنس الآخر'
+        });
+      }
     }
 
     const today = new Date().toISOString().split('T')[0];
@@ -85,20 +101,38 @@ export const executeTransfer = async (req, res) => {
 
     // 5. Log transfer in transfers_log
     const createdBy = req.user?.full_name || 'إدارة المنصة';
+    const userId = req.user?.id || null;
+    const deviceId = req.deviceId || null;
     const [transferLogResult] = await connection.query(`
-      INSERT INTO transfers_log (academic_year_id, student_id, from_group_id, to_group_id, transfer_date, reason, created_by)
-      VALUES (?, ?, ?, ?, NOW(), ?, ?)
+      INSERT INTO transfers_log (academic_year_id, student_id, from_group_id, to_group_id, transfer_date, reason, created_by, user_id, device_id)
+      VALUES (?, ?, ?, ?, NOW(), ?, ?, ?, ?)
     `, [
       academic_year_id,
       student_id,
       from_group_id,
       target_group_id,
       reason,
-      createdBy
+      createdBy,
+      userId,
+      deviceId
     ]);
 
     // COMMIT ATOMIC TRANSACTION
     await connection.commit();
+
+    const [stRow] = await pool.query('SELECT full_name, reg_no FROM students WHERE id = ?', [student_id]);
+    const studentName = stRow?.[0]?.full_name || '';
+    const [fromGroup] = await pool.query('SELECT name FROM groups WHERE id = ?', [from_group_id]);
+    const fromGroupName = fromGroup?.[0]?.name || '';
+    const toGroupName = targetGroupRows[0]?.name || '';
+
+    logActivity(req, {
+      action_type: 'TRANSFER',
+      data_type: 'TRANSFER',
+      entity_id: transferLogResult.insertId,
+      entity_name: studentName,
+      details: `تحويل الطالب "${studentName}" من فوج "${fromGroupName}" إلى فوج "${toGroupName}". السبب: ${reason}`
+    });
 
     return res.status(201).json({
       success: true,

@@ -15,7 +15,9 @@ import {
   ChevronRight,
   X,
   CalendarDays,
-  LogOut
+  LogOut,
+  History,
+  HelpCircle
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAcademicYear } from '../context/AcademicYearContext';
@@ -78,17 +80,26 @@ export default function Sidebar() {
         { to: '/rollover', label: t('sidebar.rollover'), icon: Sparkles, perm: 'rollover' },
         { to: '/settings', label: t('sidebar.settings'), icon: Settings, perm: 'settings' },
       ]
+    },
+    {
+      id: 'support_and_logs',
+      items: [
+        { to: '/logs', label: t('sidebar.audit_logs'), icon: History, adminOnly: true },
+        { to: '/help', label: t('sidebar.help', 'دليل الاستخدام'), icon: HelpCircle },
+      ]
     }
   ], [t]);
 
   const visibleNavSections = useMemo(() => {
     if (!user) return [];
-    if (user.role === 'ADMIN') return navSections;
+    const isAdmin = user.role === 'ADMIN';
     const perms = Array.isArray(user.permissions) ? user.permissions : [];
     return navSections
       .map(section => ({
         ...section,
         items: section.items.filter(item => {
+          if (item.adminOnly && !isAdmin) return false;
+          if (isAdmin) return true;
           if (!item.perm) return true;
           if (item.perm === 'settings' && perms.includes('users')) return true;
           return perms.includes(item.perm);

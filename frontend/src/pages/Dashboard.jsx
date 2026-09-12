@@ -10,7 +10,8 @@ import {
   Baby, 
   GraduationCap, 
   Award, 
-  Calendar
+  Calendar,
+  HelpCircle
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useSettings } from '../context/SettingsContext';
@@ -87,6 +88,15 @@ export default function Dashboard() {
           <p className="text-white/90 text-base leading-relaxed max-w-2xl">
             {t('dashboard.welcome_subtitle')}
           </p>
+          <div className="pt-2">
+            <Link
+              to="/help"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/20 hover:bg-white/30 text-white text-xs font-black backdrop-blur-md border border-white/25 transition-all shadow-sm hover:scale-[1.02]"
+            >
+              <HelpCircle className="w-4 h-4" />
+              <span>{t('sidebar.help', 'دليل الاستخدام والتعليمات الشامل')}</span>
+            </Link>
+          </div>
         </div>
         <div className="absolute -left-10 -bottom-10 w-64 h-64 bg-white/10 rounded-full blur-2xl pointer-events-none"></div>
       </div>
@@ -348,7 +358,7 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center gap-2 text-xs font-bold">
                     <span className="text-rose-600 bg-rose-500/10 px-2 py-0.5 rounded-md">{t('dashboard.from')}: {tr.from_group}</span>
-                    <span className="text-text-muted">←</span>
+                    <span className="text-text-muted">{isRtl ? '←' : '→'}</span>
                     <span className="text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-md">{t('dashboard.to')}: {tr.to_group}</span>
                   </div>
                   <p className="text-xs text-text-muted italic">{tr.reason}</p>

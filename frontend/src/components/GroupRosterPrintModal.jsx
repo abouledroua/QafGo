@@ -347,7 +347,7 @@ export default function GroupRosterPrintModal({ isOpen, onClose, group }) {
                   />
                 ) : (
                   <div className="w-28 h-12 border border-dashed border-slate-400 rounded-lg flex items-center justify-center text-[10px] text-slate-400">
-                    [ الختم الرسمي ]
+                    {t('group_details.print_admin_stamp', '[ الختم الرسمي ]')}
                   </div>
                 )}
               </div>
