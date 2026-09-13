@@ -30,11 +30,28 @@ export class DateTimeFormatter {
       return isNaN(input.getTime()) ? null : input;
     }
     
-    // Check if input is already formatted as JJ/MM/AAAA or DD/MM/YYYY
-    if (typeof input === 'string' && /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(input.trim())) {
-      const [day, month, year] = input.trim().split('/').map(Number);
-      const parsed = new Date(year, month - 1, day);
-      return isNaN(parsed.getTime()) ? null : parsed;
+    if (typeof input === 'string') {
+      const trimmed = input.trim();
+      // Check if input is already formatted as JJ/MM/AAAA or DD/MM/YYYY
+      if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
+        const [day, month, year] = trimmed.split('/').map(Number);
+        const parsed = new Date(year, month - 1, day);
+        return isNaN(parsed.getTime()) ? null : parsed;
+      }
+
+      // Handle time-only strings like "14:30" or "14:30:00"
+      if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(trimmed)) {
+        const parts = trimmed.split(':').map(Number);
+        const d = new Date();
+        d.setHours(parts[0], parts[1], parts[2] || 0, 0);
+        return d;
+      }
+
+      // Handle SQL datetime strings like "2026-09-13 18:30:00"
+      if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}/.test(trimmed)) {
+        const d = new Date(trimmed.replace(' ', 'T'));
+        return isNaN(d.getTime()) ? null : d;
+      }
     }
 
     const d = new Date(input);

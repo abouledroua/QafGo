@@ -4,6 +4,7 @@ import { useAcademicYear } from '../context/AcademicYearContext';
 import { useNotification } from '../context/NotificationContext';
 import { useLanguage } from '../context/LanguageContext';
 import api from '../services/api';
+import TimeInput from '../components/TimeInput';
 import {
   CalendarDays,
   DoorOpen,
@@ -1172,8 +1173,7 @@ export default function ClassroomsTimetablePage() {
 
                 <div>
                   <label className="block text-xs font-bold text-text-main mb-1.5">{t('classrooms_timetable.session_start_time')} *</label>
-                  <input
-                    type="time"
+                  <TimeInput
                     required
                     value={sessionForm.start_time}
                     onChange={(e) => setSessionForm({ ...sessionForm, start_time: e.target.value })}
@@ -1183,8 +1183,7 @@ export default function ClassroomsTimetablePage() {
 
                 <div>
                   <label className="block text-xs font-bold text-text-main mb-1.5">{t('classrooms_timetable.session_end_time')} *</label>
-                  <input
-                    type="time"
+                  <TimeInput
                     required
                     value={sessionForm.end_time}
                     onChange={(e) => setSessionForm({ ...sessionForm, end_time: e.target.value })}

@@ -6,7 +6,9 @@ import {
   updateGroup, 
   changeGroupStatus,
   deleteGroup, 
-  enrollStudentInGroup 
+  enrollStudentInGroup,
+  stopGroupEnrollment,
+  resumeGroupEnrollment
 } from '../controllers/groupController.js';
 
 const router = express.Router();
@@ -18,5 +20,8 @@ router.put('/:id', updateGroup);
 router.patch('/:id/status', changeGroupStatus);
 router.delete('/:id', deleteGroup);
 router.post('/:id/enroll', enrollStudentInGroup);
+router.put('/:id/enrollments/:enrollmentId/stop', stopGroupEnrollment);
+router.put('/:id/enrollments/:enrollmentId/resume', resumeGroupEnrollment);
 
 export default router;
+

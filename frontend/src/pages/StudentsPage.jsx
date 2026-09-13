@@ -5,6 +5,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
+import DateInput from '../components/DateInput';
 import { 
   Users, 
   UserPlus, 
@@ -922,8 +923,7 @@ export default function StudentsPage() {
                   <label className="block text-xs font-bold text-text-main mb-1">
                     {t('students.dob')}
                   </label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={formData.dob}
                     onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
                     className="w-full p-3 bg-surface border border-border rounded-xl text-sm text-text-main"
@@ -1176,8 +1176,7 @@ export default function StudentsPage() {
 
                 <div>
                   <label className="block text-xs font-bold text-text-main mb-1">{t('students.dob')}</label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={editFormData.dob}
                     onChange={(e) => setEditFormData({ ...editFormData, dob: e.target.value })}
                     className="w-full p-2.5 bg-surface border border-border rounded-xl text-xs text-text-main focus:border-primary outline-none"

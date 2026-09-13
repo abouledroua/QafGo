@@ -5,6 +5,7 @@ import { useNotification } from '../context/NotificationContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useAcademicYear } from '../context/AcademicYearContext';
 import { useSettings } from '../context/SettingsContext';
+import { DateTimeFormatter } from '../utils/dateTimeFormatter';
 
 export default function TransferModal({ 
   isOpen, 
@@ -217,7 +218,7 @@ export default function TransferModal({
                 {currentEnrollment?.group_name || currentEnrollment?.name || ''}
               </span>
               <span className="text-xs text-text-muted block">
-                {t('transfers.enrolled_at')} {currentEnrollment?.enrolled_at ? currentEnrollment.enrolled_at.split('T')[0] : ''}
+                {t('transfers.enrolled_at')} {currentEnrollment?.enrolled_at ? DateTimeFormatter.formatDate(currentEnrollment.enrolled_at) : ''}
               </span>
             </div>
           </div>

@@ -18,10 +18,18 @@ import {
   X,
   CreditCard,
   ShoppingBag,
-  Clock
+  Clock,
+  ArrowDownCircle,
+  ArrowUpCircle,
+  ArrowDownUp,
+  Tag,
+  Trash2
 } from 'lucide-react';
 import ReceiptModal from '../components/ReceiptModal';
 import SaleReceiptModal from '../components/SaleReceiptModal';
+import CashTransactionModal from '../components/CashTransactionModal';
+import CashReceiptModal from '../components/CashReceiptModal';
+import DateInput from '../components/DateInput';
 import { DateTimeFormatter, getConsecutiveMonths } from '../utils/dateTimeFormatter';
 
 export default function FinancePage() {
@@ -44,6 +52,23 @@ export default function FinancePage() {
   const [availableProducts, setAvailableProducts] = useState([]);
   const [selectedSaleForReceipt, setSelectedSaleForReceipt] = useState(null);
   const [saleReceiptModalOpen, setSaleReceiptModalOpen] = useState(false);
+
+  // Cash Register (La Caisse) state
+  const [cashTransactions, setCashTransactions] = useState([]);
+  const [cashTransactionModalOpen, setCashTransactionModalOpen] = useState(false);
+  const [cashTransactionModalType, setCashTransactionModalType] = useState('ALIMENTATION');
+  const [selectedCashTransaction, setSelectedCashTransaction] = useState(null);
+  const [cashReceiptModalOpen, setCashReceiptModalOpen] = useState(false);
+
+  // Cash Register Filters
+  const [cashTypeFilter, setCashTypeFilter] = useState('ALL');
+  const [cashCategoryFilter, setCashCategoryFilter] = useState('ALL');
+  const [cashPeriodFilter, setCashPeriodFilter] = useState('this_month');
+  const [cashSpecificDate, setCashSpecificDate] = useState(new Date().toISOString().split('T')[0]);
+  const [cashStartDate, setCashStartDate] = useState('');
+  const [cashEndDate, setCashEndDate] = useState('');
+  const [cashSearchTerm, setCashSearchTerm] = useState('');
+
   const [loading, setLoading] = useState(true);
 
   // Month reference filter defaults to current month (e.g. YYYY-MM)
@@ -114,12 +139,30 @@ export default function FinancePage() {
       const psRes = await api.get(psUrl);
       if (psRes.success) setProductSales(psRes.data || []);
 
+      // 5. Cash Register (La Caisse) transactions
+      let cshUrl = `/finance/cash-transactions?academic_year_id=${selectedYearId}`;
+      if (cashTypeFilter && cashTypeFilter !== 'ALL') cshUrl += `&type=${cashTypeFilter}`;
+      if (cashCategoryFilter && cashCategoryFilter !== 'ALL') cshUrl += `&category=${encodeURIComponent(cashCategoryFilter)}`;
+      if (cashSearchTerm) cshUrl += `&search=${encodeURIComponent(cashSearchTerm)}`;
+
+      if (cashPeriodFilter === 'custom_date' && cashSpecificDate) {
+        cshUrl += `&date=${cashSpecificDate}`;
+      } else if (cashPeriodFilter === 'custom_range') {
+        if (cashStartDate) cshUrl += `&start_date=${cashStartDate}`;
+        if (cashEndDate) cshUrl += `&end_date=${cashEndDate}`;
+      } else if (cashPeriodFilter && cashPeriodFilter !== 'all') {
+        cshUrl += `&period=${cashPeriodFilter}`;
+      }
+
+      const cshRes = await api.get(cshUrl);
+      if (cshRes.success) setCashTransactions(cshRes.data || []);
+
     } catch (err) {
       showNotification(err.message || t('common.error'), 'error');
     } finally {
       setLoading(false);
     }
-  }, [selectedYearId, statusFilter, searchTerm, selectedMonth, productSalesStatusFilter, productSalesProductFilter, productSalesPeriodFilter, productSalesSpecificDate, productSalesStartDate, productSalesEndDate, productSalesSearch, showNotification, t]);
+  }, [selectedYearId, statusFilter, searchTerm, selectedMonth, productSalesStatusFilter, productSalesProductFilter, productSalesPeriodFilter, productSalesSpecificDate, productSalesStartDate, productSalesEndDate, productSalesSearch, cashTypeFilter, cashCategoryFilter, cashPeriodFilter, cashSpecificDate, cashStartDate, cashEndDate, cashSearchTerm, showNotification, t]);
 
   useEffect(() => {
     fetchFinanceData();
@@ -274,8 +317,20 @@ export default function FinancePage() {
 
           <button
             type="button"
+            onClick={() => {
+              setCashTransactionModalType('ALIMENTATION');
+              setCashTransactionModalOpen(true);
+            }}
+            className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-lg shadow-emerald-600/25 transition-all cursor-pointer"
+          >
+            <ArrowDownUp className="w-5 h-5" />
+            <span>{t('caisse.btn_new_transaction', 'حركة صندوق (تغذية / سحب)')}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setModalOpen(true)}
-            className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-primary hover:bg-primary-hover text-white text-sm font-bold shadow-lg shadow-primary/25 transition-all"
+            className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-primary hover:bg-primary-hover text-white text-sm font-bold shadow-lg shadow-primary/25 transition-all cursor-pointer"
           >
             <Plus className="w-5 h-5" />
             <span>{t('finance.record_payment_btn')}</span>
@@ -388,6 +443,24 @@ export default function FinancePage() {
         >
           <AlertCircle className="w-4 h-4 text-amber-600" />
           <span>{t('finance.tab_unpaid')} ({unpaidStudents.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('CASH_REGISTER')}
+          className={`flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === 'CASH_REGISTER'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-text-muted hover:text-text-main'
+          }`}
+        >
+          <ArrowDownUp className="w-4 h-4 text-emerald-600" />
+          <span>{t('caisse.tab_caisse', 'حركات الصندوق (La Caisse)')} ({cashTransactions.length})</span>
+          {overview?.caisse?.caisse_balance !== undefined && (
+            <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 text-[10px] font-black border border-emerald-500/20 font-mono">
+              {parseFloat(overview.caisse.caisse_balance || 0).toLocaleString()} {t('common.currency')}
+            </span>
+          )}
         </button>
       </div>
 
@@ -550,8 +623,7 @@ export default function FinancePage() {
 
               {/* Custom Date Input */}
               {productSalesPeriodFilter === 'custom_date' && (
-                <input
-                  type="date"
+                <DateInput
                   value={productSalesSpecificDate}
                   onChange={(e) => setProductSalesSpecificDate(e.target.value)}
                   className="p-2 rounded-xl bg-surface border border-border text-xs font-mono font-bold text-text-main"
@@ -562,15 +634,13 @@ export default function FinancePage() {
               {productSalesPeriodFilter === 'custom_range' && (
                 <div className="flex items-center gap-1.5 bg-surface border border-border rounded-xl p-1 text-xs">
                   <span className="text-text-muted text-[10px] font-bold px-1">{t('common.from', 'من')}:</span>
-                  <input
-                    type="date"
+                  <DateInput
                     value={productSalesStartDate}
                     onChange={(e) => setProductSalesStartDate(e.target.value)}
                     className="bg-transparent font-mono text-xs font-bold text-text-main"
                   />
                   <span className="text-text-muted text-[10px] font-bold px-1">{t('common.to', 'إلى')}:</span>
-                  <input
-                    type="date"
+                  <DateInput
                     value={productSalesEndDate}
                     onChange={(e) => setProductSalesEndDate(e.target.value)}
                     className="bg-transparent font-mono text-xs font-bold text-text-main"
@@ -822,6 +892,325 @@ export default function FinancePage() {
         </div>
       )}
 
+      {/* Tab 4: Cash Register (La Caisse: Alimentation & Retrait) */}
+      {activeTab === 'CASH_REGISTER' && (
+        <div className="space-y-4 animate-fadeIn">
+          
+          {/* Caisse KPI Cards Banner */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            
+            {/* Total Inflow (Alimentation) */}
+            <div className="p-4 bg-surface-card border border-border rounded-2xl shadow-xs">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-text-muted">
+                  {t('caisse.kpi_total_inflow', 'إجمالي التغذية (Alimentation)')}
+                </span>
+                <div className="p-2 bg-emerald-500/10 text-emerald-600 rounded-xl">
+                  <ArrowDownCircle className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="text-xl sm:text-2xl font-black text-emerald-600 font-cairo">
+                +{parseFloat(overview?.caisse?.total_alimentations || 0).toLocaleString()} <span className="text-xs font-bold text-text-muted">{t('common.currency')}</span>
+              </div>
+              <div className="text-[11px] font-bold text-text-muted mt-1">
+                {t('caisse.kpi_operations_count', { count: overview?.caisse?.count_alimentations || 0 }, `${overview?.caisse?.count_alimentations || 0} عملية إيداع`)}
+              </div>
+            </div>
+
+            {/* Total Outflow (Retrait) */}
+            <div className="p-4 bg-surface-card border border-border rounded-2xl shadow-xs">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-text-muted">
+                  {t('caisse.kpi_total_outflow', 'إجمالي السحب (Retrait)')}
+                </span>
+                <div className="p-2 bg-rose-500/10 text-rose-600 rounded-xl">
+                  <ArrowUpCircle className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="text-xl sm:text-2xl font-black text-rose-600 font-cairo">
+                -{parseFloat(overview?.caisse?.total_retraits || 0).toLocaleString()} <span className="text-xs font-bold text-text-muted">{t('common.currency')}</span>
+              </div>
+              <div className="text-[11px] font-bold text-text-muted mt-1">
+                {t('caisse.kpi_operations_count', { count: overview?.caisse?.count_retraits || 0 }, `${overview?.caisse?.count_retraits || 0} عملية سحب`)}
+              </div>
+            </div>
+
+            {/* Net Cash Movement */}
+            <div className="p-4 bg-surface-card border border-border rounded-2xl shadow-xs">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-text-muted">
+                  {t('caisse.kpi_net_movement', 'صافي حركة الصندوق')}
+                </span>
+                <div className="p-2 bg-indigo-500/10 text-indigo-600 rounded-xl">
+                  <ArrowDownUp className="w-4 h-4" />
+                </div>
+              </div>
+              <div className={`text-xl sm:text-2xl font-black font-cairo ${
+                parseFloat(overview?.caisse?.net_movement || 0) >= 0 ? 'text-indigo-600' : 'text-rose-600'
+              }`}>
+                {parseFloat(overview?.caisse?.net_movement || 0) >= 0 ? '+' : ''}
+                {parseFloat(overview?.caisse?.net_movement || 0).toLocaleString()} <span className="text-xs font-bold text-text-muted">{t('common.currency')}</span>
+              </div>
+              <div className="text-[11px] font-bold text-text-muted mt-1">
+                {t('caisse.net_flow_desc', 'فارق الإيداعات والمصاريف')}
+              </div>
+            </div>
+
+            {/* Total Caisse Net Balance */}
+            <div className="p-4 bg-surface-card border-2 border-emerald-500/30 rounded-2xl shadow-xs bg-gradient-to-br from-surface-card to-emerald-500/5">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                  {t('caisse.kpi_caisse_balance', 'رصيد الصندوق الإجمالي')}
+                </span>
+                <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-xs">
+                  <Wallet className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="text-xl sm:text-2xl font-black text-text-main font-cairo">
+                {parseFloat(overview?.caisse?.caisse_balance ?? (overview?.financial?.caisse_balance || 0)).toLocaleString()} <span className="text-xs font-bold text-text-muted">{t('common.currency')}</span>
+              </div>
+              <div className="text-[10px] font-bold text-text-muted mt-1 truncate">
+                {t('caisse.balance_formula', 'اشتراكات + مبيعات + إيداعات - مصاريف')}
+              </div>
+            </div>
+
+          </div>
+
+          {/* Filters & Action Toolbar */}
+          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 p-3 bg-surface-card border border-border rounded-2xl">
+            <div className="flex items-center gap-2.5 flex-1 flex-wrap">
+              
+              {/* Search Bar */}
+              <div className="relative flex-1 min-w-[180px]">
+                <Search className={`w-4 h-4 text-text-muted absolute ${isRtl ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2`} />
+                <input
+                  type="text"
+                  placeholder={t('caisse.search_placeholder', 'بحث بالوصل، المستفيد، البيان...')}
+                  value={cashSearchTerm}
+                  onChange={(e) => setCashSearchTerm(e.target.value)}
+                  className={`w-full ${isRtl ? 'pr-9 pl-3' : 'pl-9 pr-3'} py-2 rounded-xl bg-surface border border-border text-xs text-text-main focus:outline-none`}
+                />
+              </div>
+
+              {/* Type Filter */}
+              <select
+                value={cashTypeFilter}
+                onChange={(e) => setCashTypeFilter(e.target.value)}
+                className="p-2 rounded-xl bg-surface border border-border text-xs font-bold text-text-main focus:outline-none cursor-pointer"
+              >
+                <option value="ALL">{t('caisse.type_all', 'جميع الحركات')}</option>
+                <option value="ALIMENTATION">{t('caisse.type_inflow', 'تغذية / إيداع')}</option>
+                <option value="RETRAIT">{t('caisse.type_outflow', 'سحب / مصروف')}</option>
+              </select>
+
+              {/* Category Filter */}
+              <select
+                value={cashCategoryFilter}
+                onChange={(e) => setCashCategoryFilter(e.target.value)}
+                className="p-2 rounded-xl bg-surface border border-border text-xs font-bold text-text-main focus:outline-none cursor-pointer max-w-[170px]"
+              >
+                <option value="ALL">{t('caisse.cat_all', 'جميع الفئات')}</option>
+                <option value="SUPPLIES">{t('caisse.cat_supplies', 'أدوات ولوازم')}</option>
+                <option value="UTILITIES">{t('caisse.cat_utilities', 'فواتير ومستحقات')}</option>
+                <option value="MAINTENANCE">{t('caisse.cat_maintenance', 'صيانة وإصلاحات')}</option>
+                <option value="SALARY">{t('caisse.cat_salary', 'رواتب ومكافآت')}</option>
+                <option value="RENT">{t('caisse.cat_rent', 'إيجار المقر')}</option>
+                <option value="CAPITAL">{t('caisse.cat_capital', 'رأس مال / تمويل')}</option>
+                <option value="TUITION_ADJUSTMENT">{t('caisse.cat_tuition_adj', 'تسوية اشتراكات')}</option>
+                <option value="OWNER_WITHDRAWAL">{t('caisse.cat_owner_withdrawal', 'مسحوبات شخصية')}</option>
+                <option value="OTHER">{t('caisse.cat_other', 'أخرى / عام')}</option>
+              </select>
+
+              {/* Period Filter */}
+              <select
+                value={cashPeriodFilter}
+                onChange={(e) => setCashPeriodFilter(e.target.value)}
+                className="p-2 rounded-xl bg-surface border border-border text-xs font-bold text-text-main focus:outline-none cursor-pointer"
+              >
+                <option value="this_month">{t('products.period_this_month', 'هذا الشهر')}</option>
+                <option value="today">{t('products.period_today', 'اليوم')}</option>
+                <option value="this_week">{t('products.period_this_week', 'هذا الأسبوع')}</option>
+                <option value="custom_date">{t('products.period_custom_date', 'تاريخ محدد...')}</option>
+                <option value="custom_range">{t('products.period_custom_range', 'فترة مخصصة...')}</option>
+                <option value="all">{t('products.period_all', 'جميع الأوقات')}</option>
+              </select>
+
+              {/* Specific Date */}
+              {cashPeriodFilter === 'custom_date' && (
+                <DateInput
+                  value={cashSpecificDate}
+                  onChange={(e) => setCashSpecificDate(e.target.value)}
+                  className="p-2 rounded-xl bg-surface border border-border text-xs font-mono font-bold text-text-main"
+                />
+              )}
+
+              {/* Custom Date Range */}
+              {cashPeriodFilter === 'custom_range' && (
+                <div className="flex items-center gap-1.5 bg-surface border border-border rounded-xl p-1 text-xs">
+                  <span className="text-text-muted text-[10px] font-bold px-1">{t('common.from', 'من')}:</span>
+                  <DateInput
+                    value={cashStartDate}
+                    onChange={(e) => setCashStartDate(e.target.value)}
+                    className="bg-transparent font-mono text-xs font-bold text-text-main"
+                  />
+                  <span className="text-text-muted text-[10px] font-bold px-1">{t('common.to', 'إلى')}:</span>
+                  <DateInput
+                    value={cashEndDate}
+                    onChange={(e) => setCashEndDate(e.target.value)}
+                    className="bg-transparent font-mono text-xs font-bold text-text-main"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Quick Record Buttons */}
+            <div className="flex items-center gap-2 self-end md:self-auto">
+              <button
+                type="button"
+                onClick={() => {
+                  setCashTransactionModalType('ALIMENTATION');
+                  setCashTransactionModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all cursor-pointer"
+              >
+                <ArrowDownCircle className="w-4 h-4" />
+                <span>{t('caisse.type_inflow', 'تغذية')}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCashTransactionModalType('RETRAIT');
+                  setCashTransactionModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm transition-all cursor-pointer"
+              >
+                <ArrowUpCircle className="w-4 h-4" />
+                <span>{t('caisse.type_outflow', 'سحب')}</span>
+              </button>
+            </div>
+
+          </div>
+
+          {/* Transactions Ledger Table */}
+          <div className="bg-surface-card border border-border rounded-3xl overflow-hidden shadow-xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-start text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-border bg-surface text-text-muted font-bold">
+                    <th className="p-3.5 text-start">{t('caisse.col_date_time', 'التاريخ والوقت')}</th>
+                    <th className="p-3.5 text-start">{t('caisse.col_receipt_no', 'رقم الوصل')}</th>
+                    <th className="p-3.5 text-start">{t('caisse.col_type', 'نوع الحركة')}</th>
+                    <th className="p-3.5 text-start">{t('caisse.col_amount', 'المبلغ')}</th>
+                    <th className="p-3.5 text-start">{t('caisse.col_category', 'البيان / الفئة')}</th>
+                    <th className="p-3.5 text-start">{t('caisse.col_beneficiary', 'المستفيد / المصدر')}</th>
+                    <th className="p-3.5 text-start">{t('caisse.col_performed_by', 'المنفذ')}</th>
+                    <th className="p-3.5 text-start">{t('caisse.col_notes', 'ملاحظات')}</th>
+                    <th className="p-3.5 text-center">{t('caisse.col_actions', 'إجراءات')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {cashTransactions.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="p-12 text-center text-text-muted">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <ArrowDownUp className="w-8 h-8 text-text-muted/40" />
+                          <span className="font-bold text-sm text-text-main">
+                            {t('caisse.no_transactions', 'لا توجد حركات صندوق مطابقة')}
+                          </span>
+                          <span className="text-xs">
+                            {t('caisse.no_transactions_sub', 'يمكنك تسجيل تغذية جديدة أو سحب مصروف من خلال زر الحركة.')}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    cashTransactions.map((item) => {
+                      const isInflow = item.type === 'ALIMENTATION';
+                      return (
+                        <tr key={item.id} className="hover:bg-surface/50 transition-colors">
+                          <td className="p-3.5 font-mono">
+                            <div className="font-bold text-text-main">
+                              {DateTimeFormatter.formatDate(item.transaction_date)}
+                            </div>
+                            <div className="text-[10px] text-text-muted">
+                              {item.transaction_time ? String(item.transaction_time).substring(0, 5) : ''}
+                            </div>
+                          </td>
+                          <td className="p-3.5 font-mono font-bold text-text-main">
+                            {item.receipt_no}
+                          </td>
+                          <td className="p-3.5">
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-black border ${
+                              isInflow
+                                ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                                : 'bg-rose-500/10 text-rose-600 border-rose-500/20'
+                            }`}>
+                              {isInflow ? <ArrowDownCircle className="w-3.5 h-3.5" /> : <ArrowUpCircle className="w-3.5 h-3.5" />}
+                              <span>{isInflow ? t('caisse.type_inflow', 'تغذية') : t('caisse.type_outflow', 'سحب')}</span>
+                            </span>
+                          </td>
+                          <td className="p-3.5 font-mono font-black text-sm">
+                            <span className={isInflow ? 'text-emerald-600' : 'text-rose-600'}>
+                              {isInflow ? '+' : '-'}{parseFloat(item.amount || 0).toLocaleString()} {t('common.currency')}
+                            </span>
+                          </td>
+                          <td className="p-3.5">
+                            <span className="px-2 py-0.5 rounded-md bg-surface border border-border text-[11px] font-bold text-text-main inline-block">
+                              {item.category === 'SUPPLIES' && t('caisse.cat_supplies', 'أدوات ولوازم')}
+                              {item.category === 'UTILITIES' && t('caisse.cat_utilities', 'فواتير')}
+                              {item.category === 'MAINTENANCE' && t('caisse.cat_maintenance', 'صيانة')}
+                              {item.category === 'SALARY' && t('caisse.cat_salary', 'رواتب')}
+                              {item.category === 'RENT' && t('caisse.cat_rent', 'إيجار')}
+                              {item.category === 'CAPITAL' && t('caisse.cat_capital', 'رأس مال')}
+                              {item.category === 'TUITION_ADJUSTMENT' && t('caisse.cat_tuition_adj', 'تسوية اشتراكات')}
+                              {item.category === 'DONATION' && t('caisse.cat_donation', 'تبرعات')}
+                              {item.category === 'OWNER_WITHDRAWAL' && t('caisse.cat_owner_withdrawal', 'مسحوبات شخصية')}
+                              {item.category === 'OTHER' && t('caisse.cat_other', 'أخرى / عام')}
+                              {!['SUPPLIES', 'UTILITIES', 'MAINTENANCE', 'SALARY', 'RENT', 'CAPITAL', 'TUITION_ADJUSTMENT', 'DONATION', 'OWNER_WITHDRAWAL', 'OTHER'].includes(item.category) && item.category}
+                            </span>
+                          </td>
+                          <td className="p-3.5 text-text-main font-bold">
+                            {item.beneficiary_or_source || '—'}
+                          </td>
+                          <td className="p-3.5 text-text-muted">
+                            {item.user_name || item.username || '—'}
+                          </td>
+                          <td className="p-3.5 text-text-muted max-w-[200px] truncate" title={item.notes || ''}>
+                            {item.notes || '—'}
+                          </td>
+                          <td className="p-3.5 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenCashReceipt(item)}
+                                title={t('finance.print_receipt_btn', 'طباعة الوصل')}
+                                className="p-1.5 rounded-xl bg-surface hover:bg-surface-hover text-text-main border border-border hover:border-primary transition-all cursor-pointer"
+                              >
+                                <Printer className="w-4 h-4 text-primary" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCashTransaction(item)}
+                                title={t('common.delete', 'حذف')}
+                                className="p-1.5 rounded-xl bg-surface hover:bg-rose-500/10 text-text-muted hover:text-rose-600 border border-border hover:border-rose-500/30 transition-all cursor-pointer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      )}
+
       {/* New Payment / Voucher Modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
@@ -1048,6 +1437,32 @@ export default function FinancePage() {
           isOpen={saleReceiptModalOpen}
           onClose={() => setSaleReceiptModalOpen(false)}
           sale={selectedSaleForReceipt}
+        />
+      )}
+
+      {/* Cash Transaction Form Modal */}
+      {cashTransactionModalOpen && (
+        <CashTransactionModal
+          isOpen={cashTransactionModalOpen}
+          onClose={() => setCashTransactionModalOpen(false)}
+          academicYearId={selectedYearId}
+          initialType={cashTransactionModalType}
+          onSuccess={(saved) => {
+            fetchFinanceData();
+            if (saved) {
+              setSelectedCashTransaction(saved);
+              setCashReceiptModalOpen(true);
+            }
+          }}
+        />
+      )}
+
+      {/* Printable Cash Voucher Receipt Modal */}
+      {cashReceiptModalOpen && selectedCashTransaction && (
+        <CashReceiptModal
+          isOpen={cashReceiptModalOpen}
+          onClose={() => setCashReceiptModalOpen(false)}
+          transaction={selectedCashTransaction}
         />
       )}
 

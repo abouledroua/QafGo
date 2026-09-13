@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useNotification } from '../context/NotificationContext';
 import api from '../services/api';
+import DateInput from '../components/DateInput';
 import { DateTimeFormatter } from '../utils/dateTimeFormatter';
 import {
   ShieldAlert,
@@ -470,8 +471,7 @@ export default function AuditLogsPage() {
             <label className="block text-[11px] font-bold text-text-muted mb-1">
               {t('audit_logs.filter_date')}
             </label>
-            <input
-              type="date"
+            <DateInput
               value={specificDate}
               onChange={(e) => {
                 setSpecificDate(e.target.value);

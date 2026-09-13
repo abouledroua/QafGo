@@ -41,6 +41,8 @@ import { ensureDefaultSettingsRow } from './controllers/settingsController.js';
 import { ensureDefaultAdminUser } from './controllers/authController.js';
 import { migrateGroupGenderAndUserAccess } from './database/addGroupGenderAndUserAccess.js';
 import { migrateProductsAndSalesTable } from './database/createProductsAndSalesTable.js';
+import { migrateRefundsTable } from './database/createRefundsTable.js';
+import { migrateCashTransactionsTable } from './database/createCashTransactionsTable.js';
 
 dotenv.config();
 
@@ -129,6 +131,8 @@ app.listen(PORT, async () => {
     await ensureDefaultAdminUser();
     await migrateGroupGenderAndUserAccess();
     await migrateProductsAndSalesTable();
+    await migrateRefundsTable();
+    await migrateCashTransactionsTable();
   } catch (err) {
     console.error('Failed to initialize default database rows on startup:', err);
   }

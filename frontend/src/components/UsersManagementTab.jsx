@@ -30,6 +30,7 @@ import {
   ShieldAlert,
   UserCheck
 } from 'lucide-react';
+import { DateTimeFormatter } from '../utils/dateTimeFormatter';
 
 export const ALL_MODULE_PERMISSIONS = [
   { id: 'dashboard', icon: LayoutDashboard, labelKey: 'perm_dashboard' },
@@ -629,7 +630,7 @@ export default function UsersManagementTab() {
 
                     {u.created_at && (
                       <span className="text-[11px] text-text-muted font-mono ms-auto">
-                        {new Date(u.created_at).toLocaleDateString('fr-FR')}
+                        {DateTimeFormatter.formatDate(u.created_at)}
                       </span>
                     )}
                   </div>
@@ -789,7 +790,7 @@ export default function UsersManagementTab() {
 
                       {/* Created At */}
                       <td className="py-3.5 px-4 text-xs text-text-muted font-mono">
-                        {u.created_at ? new Date(u.created_at).toLocaleDateString('fr-FR') : '-'}
+                        {DateTimeFormatter.formatDate(u.created_at)}
                       </td>
 
                       {/* Actions */}

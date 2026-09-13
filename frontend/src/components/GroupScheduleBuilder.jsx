@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Clock, Plus, Trash2, Sparkles, Check, Calendar, AlertTriangle } from 'lucide-react';
+import TimeInput from './TimeInput';
 import { useLanguage } from '../context/LanguageContext';
 
 const DAYS_LIST = [
@@ -447,8 +448,7 @@ export default function GroupScheduleBuilder({ trackType = 'HALAQA', value = '',
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <span className="text-[10px] text-text-muted block mb-1">{t('tracks.schedule_from')}:</span>
-                <input
-                  type="time"
+                <TimeInput
                   value={preschoolStart}
                   onChange={(e) => setPreschoolStart(e.target.value)}
                   className="w-full p-2 bg-surface-card border border-border rounded-xl text-sm font-mono font-bold text-text-main text-center"
@@ -456,8 +456,7 @@ export default function GroupScheduleBuilder({ trackType = 'HALAQA', value = '',
               </div>
               <div>
                 <span className="text-[10px] text-text-muted block mb-1">{t('tracks.schedule_to')}:</span>
-                <input
-                  type="time"
+                <TimeInput
                   value={preschoolEnd}
                   onChange={(e) => setPreschoolEnd(e.target.value)}
                   className="w-full p-2 bg-surface-card border border-border rounded-xl text-sm font-mono font-bold text-text-main text-center"
@@ -617,8 +616,7 @@ export default function GroupScheduleBuilder({ trackType = 'HALAQA', value = '',
                     {/* Start Time */}
                     <div>
                       <span className="text-[10px] text-text-muted block mb-0.5">{t('tracks.schedule_from')}:</span>
-                      <input
-                        type="time"
+                      <TimeInput
                         value={session.start_time}
                         onChange={(e) => handleUpdateTutoringSession(idx, 'start_time', e.target.value)}
                         className={`w-full p-1.5 rounded-xl text-xs font-mono font-bold text-text-main text-center border ${
@@ -630,8 +628,7 @@ export default function GroupScheduleBuilder({ trackType = 'HALAQA', value = '',
                     {/* End Time */}
                     <div>
                       <span className="text-[10px] text-text-muted block mb-0.5">{t('tracks.schedule_to')}:</span>
-                      <input
-                        type="time"
+                      <TimeInput
                         value={session.end_time}
                         onChange={(e) => handleUpdateTutoringSession(idx, 'end_time', e.target.value)}
                         className={`w-full p-1.5 rounded-xl text-xs font-mono font-bold text-text-main text-center border ${
@@ -688,8 +685,7 @@ export default function GroupScheduleBuilder({ trackType = 'HALAQA', value = '',
           <div className="grid grid-cols-2 gap-2">
             <div>
               <span className="text-[10px] text-text-muted block mb-1">{t('tracks.schedule_from')}:</span>
-              <input
-                type="time"
+              <TimeInput
                 value={halaqaStart}
                 onChange={(e) => setHalaqaStart(e.target.value)}
                 className="w-full p-2 bg-surface-card border border-border rounded-xl text-sm font-mono font-bold text-text-main text-center"
@@ -697,8 +693,7 @@ export default function GroupScheduleBuilder({ trackType = 'HALAQA', value = '',
             </div>
             <div>
               <span className="text-[10px] text-text-muted block mb-1">{t('tracks.schedule_to')}:</span>
-              <input
-                type="time"
+              <TimeInput
                 value={halaqaEnd}
                 onChange={(e) => setHalaqaEnd(e.target.value)}
                 className="w-full p-2 bg-surface-card border border-border rounded-xl text-sm font-mono font-bold text-text-main text-center"

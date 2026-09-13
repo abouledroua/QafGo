@@ -27,6 +27,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { useAcademicYear } from '../context/AcademicYearContext';
 import { DateTimeFormatter } from '../utils/dateTimeFormatter';
 import SaleReceiptModal from '../components/SaleReceiptModal';
+import DateInput from '../components/DateInput';
 
 export default function ProductsPage() {
   const { showNotification } = useNotification();
@@ -846,8 +847,7 @@ export default function ProductsPage() {
             {/* Custom Date Input */}
             {salesPeriodFilter === 'custom_date' && (
               <div className="flex items-center gap-1.5 bg-surface border border-border rounded-xl px-2.5 py-1.5 animate-fadeIn">
-                <input
-                  type="date"
+                <DateInput
                   value={salesSpecificDate}
                   onChange={(e) => setSalesSpecificDate(e.target.value)}
                   className="bg-transparent text-xs font-mono font-bold text-text-main focus:outline-none cursor-pointer"
@@ -860,8 +860,7 @@ export default function ProductsPage() {
               <div className="flex items-center gap-2 bg-surface border border-border rounded-xl px-2.5 py-1.5 text-xs animate-fadeIn flex-wrap">
                 <div className="flex items-center gap-1">
                   <span className="text-text-muted font-bold text-[10px]">{t('common.from', 'من')}:</span>
-                  <input
-                    type="date"
+                  <DateInput
                     value={salesStartDate}
                     onChange={(e) => setSalesStartDate(e.target.value)}
                     className="bg-transparent font-mono font-bold text-text-main focus:outline-none cursor-pointer"
@@ -869,8 +868,7 @@ export default function ProductsPage() {
                 </div>
                 <div className="flex items-center gap-1">
                   <span className="text-text-muted font-bold text-[10px]">{t('common.to', 'إلى')}:</span>
-                  <input
-                    type="date"
+                  <DateInput
                     value={salesEndDate}
                     onChange={(e) => setSalesEndDate(e.target.value)}
                     className="bg-transparent font-mono font-bold text-text-main focus:outline-none cursor-pointer"
@@ -1424,8 +1422,7 @@ export default function ProductsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-text-main mb-1">{t('common.date')}</label>
-                  <input
-                    type="date"
+                  <DateInput
                     required
                     value={sellFormData.sale_date}
                     onChange={(e) => setSellFormData({ ...sellFormData, sale_date: e.target.value })}
@@ -1524,8 +1521,7 @@ export default function ProductsPage() {
 
               <div>
                 <label className="block text-xs font-bold text-text-main mb-1">{t('common.date')}</label>
-                <input
-                  type="date"
+                <DateInput
                   required
                   value={payDebtFormData.payment_date}
                   onChange={(e) => setPayDebtFormData({ ...payDebtFormData, payment_date: e.target.value })}

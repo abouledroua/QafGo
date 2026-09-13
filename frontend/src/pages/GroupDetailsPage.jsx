@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../services/api';
+import DateInput from '../components/DateInput';
 import { useNotification } from '../context/NotificationContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useSettings } from '../context/SettingsContext';
@@ -54,6 +55,7 @@ import GroupRosterPrintModal from '../components/GroupRosterPrintModal';
 import GroupAttendancePrintModal from '../components/GroupAttendancePrintModal';
 import PreschoolBadgesPrintModal from '../components/PreschoolBadgesPrintModal';
 import ReceiptModal from '../components/ReceiptModal';
+import RefundModal from '../components/RefundModal';
 import { DateTimeFormatter, getConsecutiveMonths } from '../utils/dateTimeFormatter';
 
 export default function GroupDetailsPage() {
@@ -256,6 +258,8 @@ export default function GroupDetailsPage() {
   const [payingSubmitting, setPayingSubmitting] = useState(false);
   const [receiptToPreview, setReceiptToPreview] = useState(null);
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
+  const [refundModalOpen, setRefundModalOpen] = useState(false);
+  const [studentForRefund, setStudentForRefund] = useState(null);
 
   const fetchGroupDetails = useCallback(async (month = selectedFeeMonth) => {
     try {
@@ -359,6 +363,100 @@ export default function GroupDetailsPage() {
     } finally {
       setPayingSubmitting(false);
     }
+  };
+
+  const handleStopStudent = async (student) => {
+    const agreed = await confirm({
+      title: t('group_details.stop_student_confirm_title', 'إيقاف دراسة الطالب'),
+      subtitle: t('group_details.stop_student_confirm_subtitle', { name: student.student_name }, `هل أنت متأكد من رغبتك في إيقاف الطالب "${student.student_name}" عن هذا الفوج؟`),
+      confirmText: t('group_details.confirm_stop_btn', 'نعم، إيقاف الطالب'),
+      cancelText: t('common.cancel', 'إلغاء'),
+      variant: 'danger',
+      icon: UserX
+    });
+    if (!agreed) return;
+
+    try {
+      const res = await api.put(`/groups/${group.id}/enrollments/${student.enrollment_id}/stop`);
+      if (res.success) {
+        showNotification(res.message || t('group_details.stop_success', 'تم إيقاف الطالب بنجاح'), 'success');
+        await fetchGroupDetails(selectedFeeMonth);
+
+        // Check if student has paid or partially paid for this session/month
+        const grossPaid = parseFloat(student.payment_info?.gross_paid_amount ?? student.payment_info?.paid_amount ?? 0);
+        const refunded = parseFloat(student.payment_info?.refunded_amount ?? 0);
+        const remainingRefundable = Math.max(0, grossPaid - refunded);
+
+        if (remainingRefundable > 0) {
+          const wantRefund = await confirm({
+            title: t('group_details.refund_prompt_title', 'استرداد المستحقات المالية'),
+            subtitle: t('group_details.refund_prompt_subtitle', { name: student.student_name, amount: `${remainingRefundable.toLocaleString()} ${currency}` }, `الطالب سدد مبلغ (${remainingRefundable.toLocaleString()} ${currency}). هل تريد استرداد وتسوية المبلغ للطالب الآن؟`),
+            confirmText: t('group_details.open_refund_modal_btn', 'نعم، فتح نافذة الاسترداد'),
+            cancelText: t('group_details.skip_refund_btn', 'تخطي الآن'),
+            variant: 'warning',
+            icon: RotateCcw
+          });
+
+          if (wantRefund) {
+            setStudentForRefund({
+              ...student,
+              payment_info: {
+                ...student.payment_info,
+                gross_paid_amount: grossPaid,
+                refunded_amount: refunded
+              }
+            });
+            setRefundModalOpen(true);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('stop student error:', err);
+      showNotification(err.response?.data?.message || err.message || t('group_details.stop_error', 'حدث خطأ أثناء إيقاف الطالب'), 'error');
+    }
+  };
+
+  const handleResumeStudent = async (student) => {
+    const agreed = await confirm({
+      title: t('group_details.resume_student_confirm_title', 'استئناف دراسة الطالب'),
+      subtitle: t('group_details.resume_student_confirm_subtitle', { name: student.student_name }, `هل تريد استئناف دراسة الطالب "${student.student_name}" في هذا الفوج وإعادته إلى قائمة الطلبة النشطين؟`),
+      confirmText: t('group_details.confirm_resume_btn', 'استئناف الدراسة'),
+      cancelText: t('common.cancel', 'إلغاء'),
+      variant: 'success',
+      icon: Play
+    });
+    if (!agreed) return;
+
+    try {
+      const res = await api.put(`/groups/${group.id}/enrollments/${student.enrollment_id}/resume`);
+      if (res.success) {
+        showNotification(res.message || t('group_details.resume_success', 'تم استئناف دراسة الطالب بنجاح'), 'success');
+        await fetchGroupDetails(selectedFeeMonth);
+      }
+    } catch (err) {
+      console.error('resume student error:', err);
+      showNotification(err.response?.data?.message || err.message || t('group_details.resume_error', 'حدث خطأ أثناء استئناف دراسة الطالب'), 'error');
+    }
+  };
+
+  const handleRefundSuccess = (refundData, msg) => {
+    showNotification(msg || t('refund.success_notification', 'تم تسجيل استرداد المبلغ بنجاح'), 'success');
+    fetchGroupDetails(selectedFeeMonth);
+    setReceiptToPreview({
+      id: refundData.id,
+      receipt_no: refundData.receipt_no,
+      amount: refundData.amount,
+      payment_date: refundData.refund_date || refundData.payment_date,
+      refund_date: refundData.refund_date,
+      month_ref: refundData.month_ref,
+      payment_status: 'REFUNDED',
+      student_name: refundData.student_name || studentForRefund?.student_name,
+      reg_no: refundData.reg_no || studentForRefund?.reg_no,
+      group_name: refundData.group_name || group?.name,
+      academic_year_label: group?.academic_year_label,
+      notes: refundData.notes
+    });
+    setReceiptModalOpen(true);
   };
 
   // Load All Teachers for Substitution & Reassignment
@@ -1358,10 +1456,16 @@ export default function GroupDetailsPage() {
                   visibleStudents?.map((student) => {
                     const isActive = student.enrollment_status === 'ACTIVE';
                     const isTransferred = student.enrollment_status === 'TRANSFERRED';
+                    const isDropped = student.enrollment_status === 'DROPPED';
                     const isFullyExempt = student.discount_type === 'FULL_EXEMPTION' || student.payment_info?.status === 'EXEMPTED';
+                    const isRefunded = student.payment_info?.status === 'REFUNDED';
                     const isPaidFull = student.payment_info?.status === 'PAID_FULL';
                     const isPaidPartial = student.payment_info?.status === 'PAID_PARTIAL';
-                    const isUnpaid = !group.is_free && !isFullyExempt && !isPaidFull && !isPaidPartial;
+                    const isUnpaid = !group.is_free && !isFullyExempt && !isRefunded && !isPaidFull && !isPaidPartial;
+
+                    const grossPaid = parseFloat(student.payment_info?.gross_paid_amount ?? student.payment_info?.paid_amount ?? 0);
+                    const refundedAmount = parseFloat(student.payment_info?.refunded_amount ?? 0);
+                    const refundableBalance = Math.max(0, grossPaid - refundedAmount);
 
                     return (
                       <tr key={student.enrollment_id} className="hover:bg-surface/50 transition-colors">
@@ -1397,7 +1501,11 @@ export default function GroupDetailsPage() {
                               ? 'bg-amber-500/10 text-amber-600'
                               : 'bg-rose-500/10 text-rose-600'
                           }`}>
-                            {isActive ? t('group_details.active_and_continuous') : isTransferred ? t('group_details.transferred_to_other') : t('group_details.withdrawn')}
+                            {isActive 
+                              ? t('group_details.active_and_continuous') 
+                              : isTransferred 
+                              ? t('group_details.transferred_to_other') 
+                              : t('group_details.stopped_status', 'موقف / منسحب')}
                           </span>
                         </td>
                         <td className="p-4 text-xs">
@@ -1418,6 +1526,18 @@ export default function GroupDetailsPage() {
                                 </div>
                               )}
                             </div>
+                          ) : isRefunded ? (
+                            <div className="space-y-1">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold font-mono text-rose-700 dark:text-rose-400 bg-rose-500/10 border border-rose-500/20 text-xs shadow-xs">
+                                <RotateCcw className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 flex-shrink-0" />
+                                <span>{t('finance.status_refunded', 'مسترد')}</span>
+                              </span>
+                              {student.payment_info?.refund_receipt_numbers && (
+                                <div className="font-mono text-text-muted text-[10px] truncate max-w-[120px] ps-1" title={student.payment_info.refund_receipt_numbers}>
+                                  ({student.payment_info.refund_receipt_numbers})
+                                </div>
+                              )}
+                            </div>
                           ) : isPaidFull ? (
                             <div className="space-y-1">
                               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold font-mono text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 text-xs shadow-xs">
@@ -1427,6 +1547,11 @@ export default function GroupDetailsPage() {
                               {student.payment_info?.receipt_numbers && (
                                 <div className="font-mono text-text-muted text-[10px] truncate max-w-[120px] ps-1" title={student.payment_info.receipt_numbers}>
                                   ({student.payment_info.receipt_numbers})
+                                </div>
+                              )}
+                              {refundedAmount > 0 && (
+                                <div className="font-mono text-[10px] text-rose-500 ps-1">
+                                  ({t('group_details.refunded_part_label', 'مسترد')}: {refundedAmount.toLocaleString()} {currency})
                                 </div>
                               )}
                             </div>
@@ -1439,6 +1564,11 @@ export default function GroupDetailsPage() {
                               <div className="font-mono text-[11px] font-bold text-rose-600 dark:text-rose-400 ps-1">
                                 -{student.payment_info?.remaining_amount?.toLocaleString()} {currency}
                               </div>
+                              {refundedAmount > 0 && (
+                                <div className="font-mono text-[10px] text-rose-500 ps-1">
+                                  ({t('group_details.refunded_part_label', 'مسترد')}: {refundedAmount.toLocaleString()} {currency})
+                                </div>
+                              )}
                             </div>
                           ) : (
                             /* UNPAID: Show expected money value in red */
@@ -1507,6 +1637,7 @@ export default function GroupDetailsPage() {
                               </button>
                             )}
 
+                            {/* Transfer Student Button */}
                             {isActive && (
                               <button
                                 type="button"
@@ -1524,11 +1655,53 @@ export default function GroupDetailsPage() {
                                   });
                                   setTransferModalOpen(true);
                                 }}
-                                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500 hover:text-white text-amber-700 dark:text-amber-300 text-xs font-bold border border-amber-500/20 transition-all"
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500 hover:text-white text-amber-700 dark:text-amber-300 text-xs font-bold border border-amber-500/20 transition-all cursor-pointer"
                                 title={t('group_details.transfer_btn')}
                               >
                                 <ArrowLeftRight className="w-3 h-3" />
                                 <span>{t('group_details.transfer_btn')}</span>
+                              </button>
+                            )}
+
+                            {/* Stop Student Action Button (Active) */}
+                            {isActive && (
+                              <button
+                                type="button"
+                                onClick={() => handleStopStudent(student)}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-600 hover:text-white text-rose-700 dark:text-rose-400 text-xs font-bold border border-rose-500/20 transition-all cursor-pointer"
+                                title={t('group_details.stop_student_btn_title', 'إيقاف الطالب عن الفوج')}
+                              >
+                                <UserX className="w-3.5 h-3.5" />
+                                <span>{t('group_details.stop_student_btn', 'إيقاف')}</span>
+                              </button>
+                            )}
+
+                            {/* Resume Student Action Button (Dropped / Stopped) */}
+                            {isDropped && (
+                              <button
+                                type="button"
+                                onClick={() => handleResumeStudent(student)}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-600 hover:text-white text-emerald-700 dark:text-emerald-400 text-xs font-bold border border-emerald-500/20 transition-all cursor-pointer"
+                                title={t('group_details.resume_student_btn_title', 'استئناف دراسة الطالب في الفوج')}
+                              >
+                                <Play className="w-3.5 h-3.5" />
+                                <span>{t('group_details.resume_student_btn', 'استئناف')}</span>
+                              </button>
+                            )}
+
+                            {/* Refund Action Button (If student has paid refundable balance) */}
+                            {refundableBalance > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setStudentForRefund(student);
+                                  setRefundModalOpen(true);
+                                }}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-600 hover:text-white text-rose-700 dark:text-rose-400 text-xs font-bold border border-rose-500/20 transition-all cursor-pointer"
+                                title={t('group_details.issue_refund_btn_title', 'استرداد مالي')}
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>{t('group_details.refund_btn', 'استرداد')}</span>
                               </button>
                             )}
                           </div>
@@ -1966,8 +2139,7 @@ export default function GroupDetailsPage() {
                   )}
 
                   {/* Date Input */}
-                  <input
-                    type="date"
+                  <DateInput
                     value={attendanceDate}
                     onChange={(e) => setAttendanceDate(e.target.value)}
                     className="p-2 rounded-xl bg-surface-card border border-border text-xs font-bold text-text-main focus:outline-none cursor-pointer"
@@ -2366,8 +2538,7 @@ export default function GroupDetailsPage() {
                 <label className="block text-xs font-bold text-text-main mb-1.5">
                   {t('group_details.eval_date_label')} <span className="text-rose-500">*</span>
                 </label>
-                <input
-                  type="date"
+                <DateInput
                   value={evalDate}
                   onChange={(e) => setEvalDate(e.target.value)}
                   className="w-full p-3 bg-surface border border-border rounded-xl text-sm text-text-main"
@@ -2983,8 +3154,7 @@ export default function GroupDetailsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-text-main mb-1.5">{t('group_details.start_date')} *</label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={rangeStartDate}
                     onChange={(e) => setRangeStartDate(e.target.value)}
                     className="w-full p-2.5 bg-surface border border-border rounded-xl text-sm font-bold text-text-main focus:outline-none focus:border-primary"
@@ -2993,8 +3163,7 @@ export default function GroupDetailsPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-text-main mb-1.5">{t('group_details.end_date')} *</label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={rangeEndDate}
                     onChange={(e) => setRangeEndDate(e.target.value)}
                     className="w-full p-2.5 bg-surface border border-border rounded-xl text-sm font-bold text-text-main focus:outline-none focus:border-primary"
@@ -3133,8 +3302,7 @@ export default function GroupDetailsPage() {
               </label>
 
               <div className="flex items-center gap-2">
-                <input
-                  type="date"
+                <DateInput
                   value={newSessionDate}
                   onChange={(e) => setNewSessionDate(e.target.value)}
                   className="flex-1 p-2.5 rounded-xl bg-surface border border-border text-sm font-bold text-text-main focus:outline-none focus:border-primary cursor-pointer"
@@ -3256,8 +3424,7 @@ export default function GroupDetailsPage() {
                 {t('group_details.new_session_date_label')} <span className="text-rose-500">*</span>
               </label>
               <div className="flex items-center gap-2">
-                <input
-                  type="date"
+                <DateInput
                   value={newTargetDate}
                   onChange={(e) => setNewTargetDate(e.target.value)}
                   className="flex-1 p-2.5 rounded-xl bg-surface border border-border text-sm font-bold text-text-main focus:outline-none focus:border-primary cursor-pointer"
@@ -3420,8 +3587,7 @@ export default function GroupDetailsPage() {
                   <label className="block text-xs font-bold text-text-main mb-1.5">
                     {t('group_details.direct_pay_date_label', 'تاريخ الدفع')} <span className="text-rose-500">*</span>
                   </label>
-                  <input
-                    type="date"
+                  <DateInput
                     required
                     value={paymentForm.payment_date}
                     onChange={(e) => setPaymentForm(prev => ({ ...prev, payment_date: e.target.value }))}
@@ -3600,6 +3766,21 @@ export default function GroupDetailsPage() {
           }}
           group={group}
           singleStudent={selectedStudentForBadge}
+        />
+      )}
+
+      {/* Student Refund Modal */}
+      {refundModalOpen && studentForRefund && (
+        <RefundModal
+          isOpen={refundModalOpen}
+          onClose={() => {
+            setRefundModalOpen(false);
+            setStudentForRefund(null);
+          }}
+          student={studentForRefund}
+          group={group}
+          monthRef={selectedFeeMonth}
+          onSuccess={handleRefundSuccess}
         />
       )}
 

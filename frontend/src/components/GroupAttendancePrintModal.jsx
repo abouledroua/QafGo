@@ -23,6 +23,7 @@ import {
 import { useSettings } from '../context/SettingsContext';
 import { useLanguage } from '../context/LanguageContext';
 import { DateTimeFormatter } from '../utils/dateTimeFormatter';
+import DateInput from './DateInput';
 import QafGoLogo from './QafGoLogo';
 import api from '../services/api';
 
@@ -453,10 +454,8 @@ export default function GroupAttendancePrintModal({
                 )}
 
                 {/* Calendar Date Picker */}
-                <div className="flex items-center gap-1.5 bg-white border border-slate-300 px-2.5 py-1 rounded-xl">
-                  <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                  <input
-                    type="date"
+                <div className="flex items-center gap-1.5 bg-white border border-slate-300 px-2 py-1 rounded-xl">
+                  <DateInput
                     value={selectedDate}
                     onChange={(e) => setSelectedDate(e.target.value)}
                     className="text-xs font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer"
@@ -612,17 +611,15 @@ export default function GroupAttendancePrintModal({
                     />
                   </div>
                 ) : (
-                  <div className="flex items-center gap-1 bg-white border border-slate-300 px-2 py-1 rounded-xl text-xs font-bold">
+                  <div className="flex items-center gap-1.5 bg-white border border-slate-300 px-2 py-1 rounded-xl text-xs font-bold">
                     <span className="text-slate-400 text-[10px]">{t('group_details.print_from_date')}</span>
-                    <input
-                      type="date"
+                    <DateInput
                       value={customStartDate}
                       onChange={(e) => setCustomStartDate(e.target.value)}
                       className="text-xs font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer"
                     />
                     <span className="text-slate-400 text-[10px]">{t('group_details.print_to_date')}</span>
-                    <input
-                      type="date"
+                    <DateInput
                       value={customEndDate}
                       onChange={(e) => setCustomEndDate(e.target.value)}
                       className="text-xs font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer"

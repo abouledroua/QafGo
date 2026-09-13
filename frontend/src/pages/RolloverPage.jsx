@@ -3,6 +3,7 @@ import { useAcademicYear } from '../context/AcademicYearContext';
 import { useNotification } from '../context/NotificationContext';
 import { useLanguage } from '../context/LanguageContext';
 import api from '../services/api';
+import DateInput from '../components/DateInput';
 import { Sparkles, Calendar, Layers, Users, CheckCircle2, AlertTriangle, ArrowLeft, Lock, Plus } from 'lucide-react';
 
 export default function RolloverPage() {
@@ -312,8 +313,7 @@ export default function RolloverPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-text-main mb-1">{t('rollover.start_date_field')}</label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={newYearStart}
                     onChange={(e) => setNewYearStart(e.target.value)}
                     className="w-full p-2 bg-surface border border-border rounded-xl text-xs"
@@ -322,8 +322,7 @@ export default function RolloverPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-text-main mb-1">{t('rollover.end_date_field')}</label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={newYearEnd}
                     onChange={(e) => setNewYearEnd(e.target.value)}
                     className="w-full p-2 bg-surface border border-border rounded-xl text-xs"

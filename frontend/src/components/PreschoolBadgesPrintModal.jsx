@@ -38,9 +38,20 @@ export default function PreschoolBadgesPrintModal({
   const [badgeTheme, setBadgeTheme] = useState('PLAYFUL'); // 'PLAYFUL' | 'CLASSIC' | 'ELEGANT'
   const [printDate, setPrintDate] = useState('');
 
+  const groupName = group?.name || group?.group_name || singleStudent?.group_name || t('preschool.general_badge', 'شارة التلميذ');
+
   const rawStudents = useMemo(() => {
-    return group?.students || [];
-  }, [group]);
+    if (group?.students && group.students.length > 0) return group.students;
+    if (singleStudent) {
+      return [{
+        ...singleStudent,
+        student_id: singleStudent.id || singleStudent.student_id,
+        student_name: singleStudent.full_name || singleStudent.student_name,
+        enrollment_status: singleStudent.enrollment_status || 'ACTIVE'
+      }];
+    }
+    return [];
+  }, [group, singleStudent]);
 
   // Initial selection setup
   useEffect(() => {
@@ -66,7 +77,7 @@ export default function PreschoolBadgesPrintModal({
     };
   }, [isOpen, singleStudent, rawStudents]);
 
-  if (!isOpen || !group) return null;
+  if (!isOpen || (!group && !singleStudent)) return null;
 
   // Filtered students for preview / print
   const displayableStudents = rawStudents.filter(s => {
@@ -140,9 +151,11 @@ export default function PreschoolBadgesPrintModal({
               <div>
                 <h3 className="text-base font-black text-slate-800 flex items-center gap-2">
                   <span>{t('preschool.print_badges_modal_title', 'طباعة شارات أطفال التحضيري')}</span>
-                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-bold border border-purple-200">
-                    {group.name}
-                  </span>
+                  {groupName && (
+                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-bold border border-purple-200">
+                      {groupName}
+                    </span>
+                  )}
                 </h3>
                 <p className="text-xs font-bold text-slate-500">
                   {t('preschool.badges_count_summary', 'تم تحديد {selected} من أصل {total} شارة للطباعة', {
@@ -336,31 +349,31 @@ export default function PreschoolBadgesPrintModal({
 
                           <div className="text-end">
                             <span className="inline-block px-2 py-0.5 rounded-md bg-white/20 backdrop-blur-xs text-[9px] font-black tracking-wider">
-                              {group.academic_year_label || settings?.active_year_label || '2026-2027'}
+                              {group?.academic_year_label || settings?.active_year_label || '2026-2027'}
                             </span>
                           </div>
                         </div>
 
                         {/* 2. Badge Main Info Body */}
-                        <div className="p-3 flex items-center gap-3 flex-1">
+                        <div className="p-3 flex items-center gap-3 flex-1 min-h-0 overflow-hidden">
                           
                           {/* Student Photo / Avatar Box */}
-                          <div className="flex flex-col items-center shrink-0">
-                            <div className={`w-18 h-22 rounded-xl overflow-hidden border-2 ${badgeBorder} bg-slate-100 flex items-center justify-center shadow-inner relative`}>
+                          <div className="flex flex-col items-center shrink-0 w-[78px]">
+                            <div className={`w-[78px] h-[96px] max-w-[78px] max-h-[96px] rounded-xl overflow-hidden border-2 ${badgeBorder} bg-slate-100 flex items-center justify-center shadow-inner relative shrink-0`}>
                               {student.photo_url ? (
                                 <img
                                   src={student.photo_url}
                                   alt={studentName}
-                                  className="w-full h-full object-cover object-top"
+                                  className="w-full h-full max-w-full max-h-full object-cover object-top block"
                                 />
                               ) : (
-                                <div className="flex flex-col items-center justify-center text-slate-400 p-1 text-center">
+                                <div className="flex flex-col items-center justify-center text-slate-400 p-1 text-center w-full h-full">
                                   <Baby className={`w-9 h-9 ${accentColor} opacity-70 mb-0.5`} />
                                   <span className="text-[8px] font-bold text-slate-400">{t('students.photo', 'صورة')}</span>
                                 </div>
                               )}
                             </div>
-                            <span className="mt-1 font-mono text-[9px] font-black text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-md border border-slate-200">
+                            <span className="mt-1 font-mono text-[8.5px] font-black text-slate-600 bg-slate-100 px-1 py-0.5 rounded-md border border-slate-200 tracking-tight text-center block w-full whitespace-nowrap">
                               {student.reg_no}
                             </span>
                           </div>
@@ -377,22 +390,22 @@ export default function PreschoolBadgesPrintModal({
                               </h3>
                             </div>
 
-                            {/* Group & Age */}
-                            <div className="grid grid-cols-2 gap-1 text-[10px] pt-0.5">
-                              <div>
+                            {/* Group & Date of Birth */}
+                            <div className="grid grid-cols-2 gap-2 text-[10px] pt-0.5">
+                              <div className="text-start">
                                 <span className="text-[9px] font-bold text-slate-400 block">
                                   {t('preschool.group_label', 'الفوج:')}
                                 </span>
                                 <span className={`font-black ${accentColor} truncate block`}>
-                                  {group.name}
+                                  {groupName}
                                 </span>
                               </div>
-                              <div>
+                              <div className="text-start">
                                 <span className="text-[9px] font-bold text-slate-400 block">
-                                  {t('preschool.dob_age_label', 'السن / الميلاد:')}
+                                  {t('students.dob_label', 'تاريخ الميلاد:')}
                                 </span>
-                                <span className="font-bold text-slate-700 block text-[10px]">
-                                  {age ? `${age} ${t('preschool.years_old', 'سنوات')}` : (student.dob ? DateTimeFormatter.formatDate(student.dob) : '-')}
+                                <span className="font-bold text-slate-700 block text-[10px] font-mono">
+                                  <bdi>{student.dob ? DateTimeFormatter.formatDate(student.dob) : '-'}</bdi>
                                 </span>
                               </div>
                             </div>
@@ -420,7 +433,7 @@ export default function PreschoolBadgesPrintModal({
                           <div className="flex items-center gap-1.5">
                             <span className="text-slate-400">{t('preschool.teacher_label', 'المربية:')}</span>
                             <span className="text-slate-700 font-bold truncate max-w-[120px]">
-                              {group.teacher_name || settings?.school_name || '.....................'}
+                              {group?.teacher_name || settings?.school_name || '.....................'}
                             </span>
                           </div>
 

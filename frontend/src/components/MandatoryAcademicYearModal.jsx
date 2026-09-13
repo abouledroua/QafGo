@@ -3,6 +3,7 @@ import { useAcademicYear } from '../context/AcademicYearContext';
 import { useNotification } from '../context/NotificationContext';
 import { useLanguage } from '../context/LanguageContext';
 import api from '../services/api';
+import DateInput from './DateInput';
 import { Calendar, AlertCircle, Sparkles, Check } from 'lucide-react';
 
 export default function MandatoryAcademicYearModal() {
@@ -133,8 +134,7 @@ export default function MandatoryAcademicYearModal() {
               <label className="block text-xs font-bold text-text-muted mb-1.5 text-start">
                 {t('academic_year_modal.start_date')} <span className="text-rose-500">*</span>
               </label>
-              <input
-                type="date"
+              <DateInput
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
                 required
@@ -147,8 +147,7 @@ export default function MandatoryAcademicYearModal() {
               <label className="block text-xs font-bold text-text-muted mb-1.5 text-start">
                 {t('academic_year_modal.end_date')} <span className="text-rose-500">*</span>
               </label>
-              <input
-                type="date"
+              <DateInput
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
                 required

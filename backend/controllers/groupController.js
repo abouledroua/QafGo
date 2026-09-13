@@ -139,9 +139,26 @@ export const getGroupById = async (req, res) => {
       GROUP BY student_id
     `, [group.id, group.academic_year_id, targetMonthRef]);
 
+    // Fetch refunds for this group and target month
+    const [refunds] = await pool.query(`
+      SELECT 
+        student_id,
+        COALESCE(SUM(amount), 0) AS total_refunded,
+        COUNT(id) AS refund_count,
+        GROUP_CONCAT(receipt_no ORDER BY id DESC SEPARATOR ', ') AS refund_receipt_numbers
+      FROM refunds
+      WHERE group_id = ? AND academic_year_id = ? AND month_ref = ?
+      GROUP BY student_id
+    `, [group.id, group.academic_year_id, targetMonthRef]);
+
     const paymentMap = new Map();
     payments.forEach(p => {
       paymentMap.set(p.student_id, p);
+    });
+
+    const refundMap = new Map();
+    refunds.forEach(r => {
+      refundMap.set(r.student_id, r);
     });
 
     const isGroupFree = group.is_free === 1 || group.is_free === true || parseFloat(group.monthly_fee || 0) === 0;
@@ -149,7 +166,10 @@ export const getGroupById = async (req, res) => {
 
     const studentsWithPayment = students.map(student => {
       const pData = paymentMap.get(student.student_id);
-      const paidAmount = pData ? parseFloat(pData.total_paid || 0) : 0;
+      const rData = refundMap.get(student.student_id);
+      const grossPaidAmount = pData ? parseFloat(pData.total_paid || 0) : 0;
+      const refundedAmount = rData ? parseFloat(rData.total_refunded || 0) : 0;
+      const netPaidAmount = Math.max(0, grossPaidAmount - refundedAmount);
       const hasExemption = (pData && pData.has_exemption === 1) || student.discount_type === 'FULL_EXEMPTION';
 
       // Compute expected fee
@@ -170,9 +190,11 @@ export const getGroupById = async (req, res) => {
         paymentStatus = 'FREE';
       } else if (hasExemption) {
         paymentStatus = 'EXEMPTED';
-      } else if (paidAmount >= expectedFee && expectedFee > 0) {
+      } else if (grossPaidAmount > 0 && netPaidAmount === 0 && refundedAmount > 0) {
+        paymentStatus = 'REFUNDED';
+      } else if (netPaidAmount >= expectedFee && expectedFee > 0) {
         paymentStatus = 'PAID_FULL';
-      } else if (paidAmount > 0 && paidAmount < expectedFee) {
+      } else if (netPaidAmount > 0 && netPaidAmount < expectedFee) {
         paymentStatus = 'PAID_PARTIAL';
       } else if (expectedFee === 0) {
         paymentStatus = 'EXEMPTED';
@@ -180,18 +202,22 @@ export const getGroupById = async (req, res) => {
         paymentStatus = 'UNPAID';
       }
 
-      const remainingAmount = Math.max(0, expectedFee - paidAmount);
+      const remainingAmount = Math.max(0, expectedFee - netPaidAmount);
 
       return {
         ...student,
         payment_info: {
-          status: paymentStatus, // 'FREE' | 'EXEMPTED' | 'PAID_FULL' | 'PAID_PARTIAL' | 'UNPAID'
+          status: paymentStatus, // 'FREE' | 'EXEMPTED' | 'PAID_FULL' | 'PAID_PARTIAL' | 'UNPAID' | 'REFUNDED'
           expected_amount: expectedFee,
-          paid_amount: paidAmount,
+          paid_amount: netPaidAmount,
+          gross_paid_amount: grossPaidAmount,
+          refunded_amount: refundedAmount,
           remaining_amount: remainingAmount,
           month_ref: targetMonthRef,
           receipt_numbers: pData?.receipt_numbers || null,
-          payment_count: pData?.payment_count || 0
+          refund_receipt_numbers: rData?.refund_receipt_numbers || null,
+          payment_count: pData?.payment_count || 0,
+          refund_count: rData?.refund_count || 0
         }
       };
     });
@@ -654,3 +680,107 @@ export const enrollStudentInGroup = async (req, res) => {
     return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
   }
 };
+
+export const stopGroupEnrollment = async (req, res) => {
+  try {
+    const { id, enrollmentId } = req.params;
+    const { notes } = req.body || {};
+
+    const [enrollments] = await pool.query(`
+      SELECT e.*, s.full_name AS student_name, g.name AS group_name
+      FROM enrollments e
+      JOIN students s ON e.student_id = s.id
+      JOIN groups g ON e.group_id = g.id
+      WHERE e.id = ? AND e.group_id = ?
+    `, [enrollmentId, id]);
+
+    if (enrollments.length === 0) {
+      return res.status(404).json({ success: false, message: req.t('enrollment_not_found', 'التسجيل غير موجود') });
+    }
+
+    const enrollment = enrollments[0];
+    if (enrollment.status === 'DROPPED') {
+      return res.status(400).json({ success: false, message: req.t('student_already_stopped', 'الطالب متوقف بالفعل عن هذا الفوج') });
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+
+    await pool.query(`
+      UPDATE enrollments 
+      SET status = 'DROPPED', ended_at = ?
+      WHERE id = ?
+    `, [today, enrollmentId]);
+
+    logActivity(req, {
+      action_type: 'STOP',
+      data_type: 'ENROLLMENT',
+      entity_id: enrollmentId,
+      entity_name: enrollment.student_name,
+      details: `إيقاف الطالب "${enrollment.student_name}" من الفوج "${enrollment.group_name}" بتاريخ ${today}${notes ? ` - ملاحظات: ${notes}` : ''}`
+    });
+
+    return res.json({
+      success: true,
+      message: req.t('student_stopped_success', 'تم إيقاف الطالب عن الفوج بنجاح'),
+      data: {
+        enrollment_id: enrollmentId,
+        status: 'DROPPED',
+        ended_at: today
+      }
+    });
+  } catch (error) {
+    console.error('stopGroupEnrollment error:', error);
+    return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
+  }
+};
+
+export const resumeGroupEnrollment = async (req, res) => {
+  try {
+    const { id, enrollmentId } = req.params;
+
+    const [enrollments] = await pool.query(`
+      SELECT e.*, s.full_name AS student_name, g.name AS group_name
+      FROM enrollments e
+      JOIN students s ON e.student_id = s.id
+      JOIN groups g ON e.group_id = g.id
+      WHERE e.id = ? AND e.group_id = ?
+    `, [enrollmentId, id]);
+
+    if (enrollments.length === 0) {
+      return res.status(404).json({ success: false, message: req.t('enrollment_not_found', 'التسجيل غير موجود') });
+    }
+
+    const enrollment = enrollments[0];
+    if (enrollment.status === 'ACTIVE') {
+      return res.status(400).json({ success: false, message: req.t('student_already_active', 'الطالب نشط ومسجل بالفعل في هذا الفوج') });
+    }
+
+    await pool.query(`
+      UPDATE enrollments 
+      SET status = 'ACTIVE', ended_at = NULL
+      WHERE id = ?
+    `, [enrollmentId]);
+
+    logActivity(req, {
+      action_type: 'RESUME',
+      data_type: 'ENROLLMENT',
+      entity_id: enrollmentId,
+      entity_name: enrollment.student_name,
+      details: `استئناف دراسة الطالب "${enrollment.student_name}" في الفوج "${enrollment.group_name}"`
+    });
+
+    return res.json({
+      success: true,
+      message: req.t('student_resumed_success', 'تم استئناف دراسة الطالب في الفوج بنجاح'),
+      data: {
+        enrollment_id: enrollmentId,
+        status: 'ACTIVE',
+        ended_at: null
+      }
+    });
+  } catch (error) {
+    console.error('resumeGroupEnrollment error:', error);
+    return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
+  }
+};
+

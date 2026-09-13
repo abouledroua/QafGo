@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Printer, CheckCircle2, Award, Building2 } from 'lucide-react';
+import { X, Printer, CheckCircle2, Award, Building2, RotateCcw } from 'lucide-react';
 import QafGoLogo from './QafGoLogo';
 import { useSettings } from '../context/SettingsContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -24,6 +24,7 @@ export default function ReceiptModal({ isOpen, onClose, payment }) {
   if (!isOpen || !payment) return null;
 
   const isExempt = payment.payment_status === 'EXEMPTED';
+  const isRefund = payment.payment_status === 'REFUNDED' || payment.receipt_no?.startsWith('REF');
   const currency = settings?.currency_symbol || (isRtl ? 'د.ج' : 'DZD');
 
   const handlePrint = () => {
@@ -37,16 +38,18 @@ export default function ReceiptModal({ isOpen, onClose, payment }) {
         {/* Modal Controls (Hidden in print) */}
         <div className="no-print flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50">
           <span className="text-xs font-bold text-slate-500">
-            {t('finance.receipt_preview_title')}
+            {isRefund ? t('finance.refund_receipt_preview_title', 'معاينة وصل الاسترداد') : t('finance.receipt_preview_title')}
           </span>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={handlePrint}
-              className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-colors"
+              className={`flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white rounded-xl shadow-md transition-colors ${
+                isRefund ? 'bg-rose-600 hover:bg-rose-700' : 'bg-blue-600 hover:bg-blue-700'
+              }`}
             >
               <Printer className="w-4 h-4" />
-              <span>{t('finance.print_receipt_btn')}</span>
+              <span>{isRefund ? t('finance.print_refund_btn', 'طباعة وصل الاسترداد') : t('finance.print_receipt_btn')}</span>
             </button>
             <button
               type="button"
@@ -98,11 +101,17 @@ export default function ReceiptModal({ isOpen, onClose, payment }) {
 
             <div className="text-start">
               <span className={`inline-block px-3 py-1 rounded-full text-xs font-black uppercase ${
-                isExempt 
+                isRefund
+                  ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                  : isExempt 
                   ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
                   : 'bg-blue-100 text-blue-800 border border-blue-300'
               }`}>
-                {isExempt ? t('finance.receipt_title_exempt') : t('finance.receipt_title_paid')}
+                {isRefund 
+                  ? t('finance.receipt_title_refund', 'وصل استرداد مالي') 
+                  : isExempt 
+                  ? t('finance.receipt_title_exempt') 
+                  : t('finance.receipt_title_paid')}
               </span>
               <div className="text-xs font-mono font-bold text-slate-600 mt-1">
                 {t('finance.receipt_no_label')} {payment.receipt_no}
@@ -111,9 +120,17 @@ export default function ReceiptModal({ isOpen, onClose, payment }) {
           </div>
 
           {/* Title Banner */}
-          <div className="text-center py-2.5 bg-slate-50 rounded-2xl border border-slate-100">
-            <h2 className="text-xl font-black text-slate-800">
-              {isExempt ? t('finance.receipt_title_exempt') : t('finance.receipt_title_paid')}
+          <div className={`text-center py-2.5 rounded-2xl border ${
+            isRefund 
+              ? 'bg-rose-50/50 border-rose-100' 
+              : 'bg-slate-50 border-slate-100'
+          }`}>
+            <h2 className={`text-xl font-black ${isRefund ? 'text-rose-900' : 'text-slate-800'}`}>
+              {isRefund 
+                ? t('finance.receipt_title_refund', 'وصل استرداد مالي معتمد') 
+                : isExempt 
+                ? t('finance.receipt_title_exempt') 
+                : t('finance.receipt_title_paid')}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
               {payment.academic_year_label ? `${payment.academic_year_label} | ` : ''}
@@ -148,8 +165,12 @@ export default function ReceiptModal({ isOpen, onClose, payment }) {
               </div>
             )}
             <div className="flex justify-between py-2 border-b border-slate-100">
-              <span className="text-slate-500">{t('finance.receipt_date_label')}</span>
-              <span className="font-mono font-medium text-slate-700">{DateTimeFormatter.formatDate(payment.payment_date)}</span>
+              <span className="text-slate-500">
+                {isRefund ? t('finance.refund_date_label', 'تاريخ الاسترداد') : t('finance.receipt_date_label')}
+              </span>
+              <span className="font-mono font-medium text-slate-700">
+                {DateTimeFormatter.formatDate(payment.refund_date || payment.payment_date)}
+              </span>
             </div>
             <div className="flex justify-between py-2 border-b border-slate-100">
               <span className="text-slate-500">{t('finance.payment_notes')}:</span>
@@ -159,18 +180,34 @@ export default function ReceiptModal({ isOpen, onClose, payment }) {
 
           {/* Amount Box */}
           <div className={`p-4 rounded-2xl flex items-center justify-between border ${
-            isExempt 
+            isRefund
+              ? 'bg-rose-50 border-rose-200 text-rose-900'
+              : isExempt 
               ? 'bg-emerald-50 border-emerald-200 text-emerald-900' 
               : 'bg-blue-50 border-blue-200 text-blue-900'
           }`}>
             <div className="flex items-center gap-2">
-              {isExempt ? <Award className="w-6 h-6 text-emerald-600" /> : <CheckCircle2 className="w-6 h-6 text-blue-600" />}
+              {isRefund ? (
+                <RotateCcw className="w-6 h-6 text-rose-600" />
+              ) : isExempt ? (
+                <Award className="w-6 h-6 text-emerald-600" />
+              ) : (
+                <CheckCircle2 className="w-6 h-6 text-blue-600" />
+              )}
               <span className="font-bold text-base">
-                {isExempt ? t('finance.receipt_status_exempt') : t('finance.receipt_amount_label')}
+                {isRefund 
+                  ? t('finance.receipt_refund_amount_label', 'المبلغ المسترد') 
+                  : isExempt 
+                  ? t('finance.receipt_status_exempt') 
+                  : t('finance.receipt_amount_label')}
               </span>
             </div>
             <div className="text-2xl font-black font-mono">
-              {isExempt ? `0.00 ${currency}` : `${parseFloat(payment.amount).toFixed(2)} ${currency}`}
+              {isRefund 
+                ? `-${parseFloat(payment.amount).toFixed(2)} ${currency}` 
+                : isExempt 
+                ? `0.00 ${currency}` 
+                : `${parseFloat(payment.amount).toFixed(2)} ${currency}`}
             </div>
           </div>
 

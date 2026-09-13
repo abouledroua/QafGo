@@ -30,6 +30,15 @@ export const getFinanceOverview = async (req, res) => {
       WHERE academic_year_id = ? OR academic_year_id IS NULL
     `, [academic_year_id]);
 
+    // 1.2 Refunds issued
+    const [refundStats] = await pool.query(`
+      SELECT 
+        COALESCE(SUM(amount), 0.00) AS total_refunds,
+        COUNT(id) AS total_refunds_count
+      FROM refunds
+      WHERE academic_year_id = ?
+    `, [academic_year_id]);
+
     // 2. Active students breakdown by group pricing & exemptions
     const [enrollmentStats] = await pool.query(`
       SELECT 
@@ -43,9 +52,28 @@ export const getFinanceOverview = async (req, res) => {
       WHERE e.academic_year_id = ? AND e.status = 'ACTIVE'
     `, [academic_year_id]);
 
+    // 1.3 Cash Register (La Caisse: Alimentation & Retrait)
+    const [cashStats] = await pool.query(`
+      SELECT 
+        COALESCE(SUM(CASE WHEN type = 'ALIMENTATION' THEN amount ELSE 0 END), 0.00) AS total_alimentations,
+        COALESCE(SUM(CASE WHEN type = 'RETRAIT' THEN amount ELSE 0 END), 0.00) AS total_retraits,
+        COUNT(CASE WHEN type = 'ALIMENTATION' THEN 1 END) AS count_alimentations,
+        COUNT(CASE WHEN type = 'RETRAIT' THEN 1 END) AS count_retraits
+      FROM cash_transactions
+      WHERE academic_year_id = ? OR academic_year_id IS NULL
+    `, [academic_year_id]);
+
     const tuitionRevenue = parseFloat(paymentStats[0]?.total_revenue || 0);
     const productsRevenue = parseFloat(productSalesStats[0]?.total_products_revenue || 0);
+    const totalRefunds = parseFloat(refundStats[0]?.total_refunds || 0);
+    const totalAlimentations = parseFloat(cashStats[0]?.total_alimentations || 0);
+    const totalRetraits = parseFloat(cashStats[0]?.total_retraits || 0);
+
     const combinedTotalRevenue = Math.round((tuitionRevenue + productsRevenue) * 100) / 100;
+    const netTuitionRevenue = Math.round((tuitionRevenue - totalRefunds) * 100) / 100;
+    const netTotalRevenue = Math.round((combinedTotalRevenue - totalRefunds) * 100) / 100;
+    const netCashMovement = Math.round((totalAlimentations - totalRetraits) * 100) / 100;
+    const caisseBalance = Math.round((netTotalRevenue + netCashMovement) * 100) / 100;
 
     return res.json({
       success: true,
@@ -54,10 +82,26 @@ export const getFinanceOverview = async (req, res) => {
           ...paymentStats[0],
           tuition_revenue: tuitionRevenue,
           products_revenue: productsRevenue,
-          total_revenue: combinedTotalRevenue
+          total_revenue: combinedTotalRevenue,
+          total_refunds: totalRefunds,
+          total_refunds_count: refundStats[0]?.total_refunds_count || 0,
+          net_tuition_revenue: netTuitionRevenue,
+          net_total_revenue: netTotalRevenue,
+          total_alimentations: totalAlimentations,
+          total_retraits: totalRetraits,
+          net_cash_movement: netCashMovement,
+          caisse_balance: caisseBalance
         },
         enrollments: enrollmentStats[0],
-        products: productSalesStats[0]
+        products: productSalesStats[0],
+        refunds: refundStats[0],
+        caisse: {
+          ...cashStats[0],
+          total_alimentations: totalAlimentations,
+          total_retraits: totalRetraits,
+          net_movement: netCashMovement,
+          caisse_balance: caisseBalance
+        }
       }
     });
   } catch (error) {
@@ -423,3 +467,368 @@ export const getUnpaidStudents = async (req, res) => {
     return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
   }
 };
+
+export const createRefund = async (req, res) => {
+  try {
+    const {
+      academic_year_id,
+      student_id,
+      group_id,
+      enrollment_id,
+      amount,
+      refund_date,
+      month_ref,
+      notes
+    } = req.body;
+
+    if (!academic_year_id || !student_id || !group_id || !month_ref || !refund_date) {
+      return res.status(400).json({ success: false, message: req.t('bad_request') });
+    }
+
+    const refundAmount = parseFloat(amount || 0);
+    if (isNaN(refundAmount) || refundAmount <= 0) {
+      return res.status(400).json({ success: false, message: req.t('invalid_refund_amount', 'مبلغ الاسترداد غير صالح') });
+    }
+
+    // Fetch student and group names for receipt and audit
+    const [students] = await pool.query(`SELECT full_name, reg_no FROM students WHERE id = ?`, [student_id]);
+    const [groups] = await pool.query(`SELECT name FROM groups WHERE id = ?`, [group_id]);
+    const studentName = students[0]?.full_name || '';
+    const studentRegNo = students[0]?.reg_no || '';
+    const groupName = groups[0]?.name || '';
+
+    // Calculate total paid and already refunded for this month
+    const [paidRes] = await pool.query(`
+      SELECT COALESCE(SUM(amount), 0) AS total_paid
+      FROM payments
+      WHERE academic_year_id = ? AND student_id = ? AND group_id = ? AND month_ref = ? AND payment_status = 'PAID'
+    `, [academic_year_id, student_id, group_id, month_ref]);
+
+    const [refundRes] = await pool.query(`
+      SELECT COALESCE(SUM(amount), 0) AS total_refunded
+      FROM refunds
+      WHERE academic_year_id = ? AND student_id = ? AND group_id = ? AND month_ref = ?
+    `, [academic_year_id, student_id, group_id, month_ref]);
+
+    const totalPaid = parseFloat(paidRes[0]?.total_paid || 0);
+    const totalRefunded = parseFloat(refundRes[0]?.total_refunded || 0);
+    const maxRefundable = Math.max(0, totalPaid - totalRefunded);
+
+    if (refundAmount > maxRefundable) {
+      return res.status(400).json({
+        success: false,
+        message: req.t('refund_amount_exceeds_paid', { max: maxRefundable }, `مبلغ الاسترداد (${refundAmount}) يتجاوز المبلغ المدفوع المتبقي (${maxRefundable})`)
+      });
+    }
+
+    // Generate unique receipt number
+    const yearShort = new Date().getFullYear().toString().slice(-2);
+    const randomCode = Math.floor(10000 + Math.random() * 90000);
+    const receiptNo = `REF-${yearShort}-${randomCode}`;
+
+    const userId = req.user?.id || null;
+    const deviceId = req.deviceId || null;
+
+    const [insertRes] = await pool.query(`
+      INSERT INTO refunds (
+        academic_year_id, student_id, group_id, enrollment_id,
+        amount, refund_date, month_ref, receipt_no, notes, user_id, device_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      academic_year_id,
+      student_id,
+      group_id,
+      enrollment_id || null,
+      refundAmount,
+      refund_date,
+      month_ref,
+      receiptNo,
+      notes || 'استرداد مالي لاشتراك الفوج',
+      userId,
+      deviceId
+    ]);
+
+    logActivity(req, {
+      action_type: 'REFUND',
+      data_type: 'PAYMENT',
+      entity_id: insertRes.insertId,
+      entity_name: studentName,
+      details: `استرداد مبلغ ${refundAmount} د.ج للطالب "${studentName}" عن شهر ${month_ref} في الفوج "${groupName}" (وصل رقم ${receiptNo})`
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: req.t('refund_processed_success', 'تم تسجيل استرداد المبلغ بنجاح'),
+      data: {
+        id: insertRes.insertId,
+        receipt_no: receiptNo,
+        student_id,
+        student_name: studentName,
+        reg_no: studentRegNo,
+        group_id,
+        group_name: groupName,
+        amount: refundAmount,
+        refund_date,
+        payment_date: refund_date,
+        month_ref,
+        notes: notes || 'استرداد مالي لاشتراك الفوج',
+        payment_status: 'REFUNDED'
+      }
+    });
+  } catch (error) {
+    console.error('createRefund error:', error);
+    return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
+  }
+};
+
+export const getRefunds = async (req, res) => {
+  try {
+    const { academic_year_id, group_id, student_id, month_ref, search } = req.query;
+    let query = `
+      SELECT 
+        r.*,
+        s.reg_no,
+        s.full_name AS student_name,
+        s.guardian_phone,
+        g.name AS group_name,
+        ay.label AS academic_year_label
+      FROM refunds r
+      JOIN students s ON r.student_id = s.id
+      JOIN groups g ON r.group_id = g.id
+      JOIN academic_years ay ON r.academic_year_id = ay.id
+      WHERE 1=1
+    `;
+    const params = [];
+    if (academic_year_id) {
+      query += ` AND r.academic_year_id = ?`;
+      params.push(academic_year_id);
+    }
+    if (group_id) {
+      query += ` AND r.group_id = ?`;
+      params.push(group_id);
+    }
+    if (student_id) {
+      query += ` AND r.student_id = ?`;
+      params.push(student_id);
+    }
+    if (month_ref) {
+      query += ` AND r.month_ref = ?`;
+      params.push(month_ref);
+    }
+    if (search) {
+      query += ` AND (s.full_name LIKE ? OR s.reg_no LIKE ? OR r.receipt_no LIKE ?)`;
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    query += ` ORDER BY r.refund_date DESC, r.id DESC`;
+
+    const [rows] = await pool.query(query, params);
+    return res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error('getRefunds error:', error);
+    return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
+  }
+};
+
+export const createCashTransaction = async (req, res) => {
+  try {
+    const {
+      academic_year_id,
+      type, // 'ALIMENTATION' or 'RETRAIT'
+      amount,
+      category,
+      beneficiary_or_source,
+      transaction_date,
+      transaction_time,
+      payment_method,
+      notes
+    } = req.body;
+
+    if (!type || !['ALIMENTATION', 'RETRAIT'].includes(type)) {
+      return res.status(400).json({ success: false, message: 'نوع الحركة غير صالح (يجب أن يكون إيداع أو سحب)' });
+    }
+
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'المبلغ المالي غير صالح' });
+    }
+
+    const dateVal = transaction_date ? String(transaction_date).substring(0, 10) : new Date().toISOString().substring(0, 10);
+    const timeVal = transaction_time || new Date().toTimeString().substring(0, 8);
+
+    // Generate unique receipt voucher: CSH-IN-YY-XXXXX or CSH-OUT-YY-XXXXX
+    const yearShort = new Date().getFullYear().toString().slice(-2);
+    const prefix = type === 'ALIMENTATION' ? 'CSH-IN' : 'CSH-OUT';
+    const randomCode = Math.random().toString(36).substring(2, 7).toUpperCase();
+    const receiptNo = `${prefix}-${yearShort}-${randomCode}`;
+
+    const userId = req.user?.id || null;
+    const deviceId = req.deviceId || null;
+
+    const [insertRes] = await pool.query(`
+      INSERT INTO cash_transactions (
+        academic_year_id, type, amount, category, beneficiary_or_source,
+        transaction_date, transaction_time, receipt_no, payment_method, notes, user_id, device_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      academic_year_id || null,
+      type,
+      numAmount,
+      category || 'OTHER',
+      beneficiary_or_source || null,
+      dateVal,
+      timeVal,
+      receiptNo,
+      payment_method || 'CASH',
+      notes || null,
+      userId,
+      deviceId
+    ]);
+
+    const actionText = type === 'ALIMENTATION' ? 'تغذية الصندوق (إيداع)' : 'سحب من الصندوق (مصروف)';
+    logActivity(req, {
+      action_type: type,
+      data_type: 'CASH_TRANSACTION',
+      entity_id: insertRes.insertId,
+      entity_name: receiptNo,
+      details: `${actionText} بمبلغ ${numAmount} د.ج فئة [${category || 'OTHER'}] - وصل رقم ${receiptNo}${beneficiary_or_source ? ` (الجهة: ${beneficiary_or_source})` : ''}`
+    });
+
+    const [userRows] = userId ? await pool.query('SELECT id, full_name, username FROM users WHERE id = ?', [userId]) : [[]];
+
+    return res.status(201).json({
+      success: true,
+      message: type === 'ALIMENTATION' ? 'تم تسجيل إيداع وتغذية الصندوق بنجاح' : 'تم تسجيل سحب المبلغ من الصندوق بنجاح',
+      data: {
+        id: insertRes.insertId,
+        academic_year_id,
+        type,
+        amount: numAmount,
+        category: category || 'OTHER',
+        beneficiary_or_source: beneficiary_or_source || '',
+        transaction_date: dateVal,
+        transaction_time: timeVal,
+        receipt_no: receiptNo,
+        payment_method: payment_method || 'CASH',
+        notes: notes || '',
+        user_id: userId,
+        user_name: userRows[0]?.full_name || userRows[0]?.username || 'المسؤول',
+        created_at: new Date()
+      }
+    });
+  } catch (error) {
+    console.error('createCashTransaction error:', error);
+    return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
+  }
+};
+
+export const getCashTransactions = async (req, res) => {
+  try {
+    const {
+      academic_year_id,
+      type,
+      category,
+      period,
+      date,
+      start_date,
+      end_date,
+      search
+    } = req.query;
+
+    let query = `
+      SELECT 
+        ct.*,
+        u.full_name AS user_name,
+        u.username,
+        ay.label AS academic_year_label
+      FROM cash_transactions ct
+      LEFT JOIN users u ON ct.user_id = u.id
+      LEFT JOIN academic_years ay ON ct.academic_year_id = ay.id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (academic_year_id) {
+      query += ` AND (ct.academic_year_id = ? OR ct.academic_year_id IS NULL)`;
+      params.push(academic_year_id);
+    }
+
+    if (type && ['ALIMENTATION', 'RETRAIT'].includes(type)) {
+      query += ` AND ct.type = ?`;
+      params.push(type);
+    }
+
+    if (category && category !== 'ALL') {
+      query += ` AND ct.category = ?`;
+      params.push(category);
+    }
+
+    // Period / Date filters
+    if (period === 'today') {
+      query += ` AND ct.transaction_date = CURRENT_DATE`;
+    } else if (period === 'this_week') {
+      query += ` AND YEARWEEK(ct.transaction_date, 1) = YEARWEEK(CURRENT_DATE, 1)`;
+    } else if (period === 'this_month') {
+      query += ` AND YEAR(ct.transaction_date) = YEAR(CURRENT_DATE) AND MONTH(ct.transaction_date) = MONTH(CURRENT_DATE)`;
+    } else if (date) {
+      query += ` AND ct.transaction_date = ?`;
+      params.push(date);
+    } else if (start_date && end_date) {
+      query += ` AND ct.transaction_date BETWEEN ? AND ?`;
+      params.push(start_date, end_date);
+    } else if (start_date) {
+      query += ` AND ct.transaction_date >= ?`;
+      params.push(start_date);
+    } else if (end_date) {
+      query += ` AND ct.transaction_date <= ?`;
+      params.push(end_date);
+    }
+
+    if (search) {
+      query += ` AND (
+        ct.receipt_no LIKE ? OR 
+        ct.beneficiary_or_source LIKE ? OR 
+        ct.notes LIKE ? OR 
+        ct.category LIKE ? OR 
+        u.full_name LIKE ?
+      )`;
+      const s = `%${search}%`;
+      params.push(s, s, s, s, s);
+    }
+
+    query += ` ORDER BY ct.transaction_date DESC, ct.transaction_time DESC, ct.id DESC`;
+
+    const [rows] = await pool.query(query, params);
+    return res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error('getCashTransactions error:', error);
+    return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
+  }
+};
+
+export const deleteCashTransaction = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [existing] = await pool.query('SELECT * FROM cash_transactions WHERE id = ?', [id]);
+    if (!existing || existing.length === 0) {
+      return res.status(404).json({ success: false, message: 'الحركة المالية غير موجودة' });
+    }
+
+    const trans = existing[0];
+    await pool.query('DELETE FROM cash_transactions WHERE id = ?', [id]);
+
+    logActivity(req, {
+      action_type: 'DELETE',
+      data_type: 'CASH_TRANSACTION',
+      entity_id: id,
+      entity_name: trans.receipt_no,
+      details: `حذف حركة الصندوق رقم ${trans.receipt_no} بقيمة ${trans.amount} د.ج (${trans.type})`
+    });
+
+    return res.json({ success: true, message: 'تم إلغاء وحذف حركة الصندوق بنجاح' });
+  } catch (error) {
+    console.error('deleteCashTransaction error:', error);
+    return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
+  }
+};
+
+

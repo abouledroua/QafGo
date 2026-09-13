@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../services/api';
+import DateInput from '../components/DateInput';
 import { useNotification } from '../context/NotificationContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useSettings } from '../context/SettingsContext';
@@ -32,18 +33,23 @@ import {
   ShoppingBag,
   ArrowDownCircle,
   CreditCard,
-  Plus
+  Plus,
+  UserX,
+  Play,
+  RotateCcw
 } from 'lucide-react';
 import TransferModal from '../components/TransferModal';
 import ReceiptModal from '../components/ReceiptModal';
 import SaleReceiptModal from '../components/SaleReceiptModal';
+import RefundModal from '../components/RefundModal';
+import PreschoolBadgesPrintModal from '../components/PreschoolBadgesPrintModal';
 import { DateTimeFormatter } from '../utils/dateTimeFormatter';
 
 export default function StudentProfilePage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { showNotification } = useNotification();
-  const { t, isRtl, dir } = useLanguage();
+  const { showNotification, confirm } = useNotification();
+  const { t, isRtl, dir, currency } = useLanguage();
   const { settings, fetchSettings } = useSettings();
 
   useEffect(() => {
@@ -66,6 +72,14 @@ export default function StudentProfilePage() {
   const [selectedEnrollmentForTransfer, setSelectedEnrollmentForTransfer] = useState(null);
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
   const [selectedPaymentForReceipt, setSelectedPaymentForReceipt] = useState(null);
+
+  // Stop, Resume & Refund State
+  const [refundModalOpen, setRefundModalOpen] = useState(false);
+  const [enrollmentForRefund, setEnrollmentForRefund] = useState(null);
+
+  // Badge Print Modal State
+  const [badgeModalOpen, setBadgeModalOpen] = useState(false);
+  const [selectedGroupForBadge, setSelectedGroupForBadge] = useState(null);
 
   // Edit Student State
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -230,6 +244,160 @@ export default function StudentProfilePage() {
   }
 
   const { student, summary, enrollments, transfers, tahfizLogs, preschoolLogs, tutoringGrades, yearlyAttendanceRates, payments, productSales = [], timeline } = dossier;
+
+  const handlePrintBadge = (en = null) => {
+    if (en) {
+      setSelectedGroupForBadge({
+        id: en.group_id,
+        name: en.group_name,
+        academic_year_label: en.academic_year_label,
+        teacher_name: en.teacher_name,
+        track_type: en.track_type
+      });
+    } else {
+      const activeEn = (enrollments || []).find(e => e.status === 'ACTIVE') || enrollments?.[0];
+      if (activeEn) {
+        setSelectedGroupForBadge({
+          id: activeEn.group_id,
+          name: activeEn.group_name,
+          academic_year_label: activeEn.academic_year_label,
+          teacher_name: activeEn.teacher_name,
+          track_type: activeEn.track_type
+        });
+      } else {
+        setSelectedGroupForBadge({
+          name: student.academic_level || t('preschool.general_badge', 'شارة التلميذ'),
+          academic_year_label: settings?.active_year_label
+        });
+      }
+    }
+    setBadgeModalOpen(true);
+  };
+
+  const handleStopEnrollment = async (en) => {
+    const agreed = await confirm({
+      title: t('group_details.stop_student_confirm_title', 'إيقاف دراسة الطالب'),
+      subtitle: t('group_details.stop_student_confirm_subtitle', { name: student.full_name }, `هل أنت متأكد من رغبتك في إيقاف الطالب "${student.full_name}" عن فوج "${en.group_name}"؟`),
+      confirmText: t('group_details.confirm_stop_btn', 'نعم، إيقاف الطالب'),
+      cancelText: t('common.cancel', 'إلغاء'),
+      variant: 'danger',
+      icon: UserX
+    });
+    if (!agreed) return;
+
+    try {
+      const res = await api.put(`/groups/${en.group_id}/enrollments/${en.id}/stop`);
+      if (res.success) {
+        showNotification(res.message || t('group_details.stop_success', 'تم إيقاف الطالب بنجاح'), 'success');
+        await fetchDossier();
+
+        // Calculate if student has paid for this group/month
+        let grossPaid = 0;
+        let refunded = 0;
+        let targetMonth = new Date().toISOString().slice(0, 7);
+
+        const groupPayments = (payments || []).filter(
+          p => p.group_id === en.group_id && (p.payment_status === 'PAID' || p.status === 'PAID')
+        );
+
+        if (groupPayments.length > 0) {
+          targetMonth = groupPayments[0].month_ref || targetMonth;
+          grossPaid = groupPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+          try {
+            const refRes = await api.get(`/finance/refunds?student_id=${student.id}&group_id=${en.group_id}&month_ref=${targetMonth}`);
+            if (refRes.success && refRes.data) {
+              refunded = refRes.data.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+            }
+          } catch (e) {
+            console.error('Error fetching refunds:', e);
+          }
+        }
+
+        const remainingRefundable = Math.max(0, grossPaid - refunded);
+        if (remainingRefundable > 0) {
+          const wantRefund = await confirm({
+            title: t('group_details.refund_prompt_title', 'استرداد المستحقات المالية'),
+            subtitle: t('group_details.refund_prompt_subtitle', { name: student.full_name, amount: `${remainingRefundable.toLocaleString()} ${currency}` }, `الطالب سدد مبلغ (${remainingRefundable.toLocaleString()} ${currency}). هل تريد استرداد وتسوية المبلغ للطالب الآن؟`),
+            confirmText: t('group_details.open_refund_modal_btn', 'نعم، فتح نافذة الاسترداد'),
+            cancelText: t('group_details.skip_refund_btn', 'تخطي الآن'),
+            variant: 'warning',
+            icon: RotateCcw
+          });
+
+          if (wantRefund) {
+            setEnrollmentForRefund({
+              enrollment: en,
+              targetMonth,
+              studentObj: {
+                student_id: student.id,
+                student_name: student.full_name,
+                reg_no: student.reg_no,
+                enrollment_id: en.id,
+                payment_info: {
+                  gross_paid_amount: grossPaid,
+                  refunded_amount: refunded,
+                  month_ref: targetMonth
+                }
+              },
+              groupObj: {
+                id: en.group_id,
+                name: en.group_name,
+                academic_year_id: en.academic_year_id,
+                academic_year_label: en.academic_year_label
+              }
+            });
+            setRefundModalOpen(true);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('stop student error:', err);
+      showNotification(err.response?.data?.message || err.message || t('group_details.stop_error', 'حدث خطأ أثناء إيقاف الطالب'), 'error');
+    }
+  };
+
+  const handleResumeEnrollment = async (en) => {
+    const agreed = await confirm({
+      title: t('group_details.resume_student_confirm_title', 'استئناف دراسة الطالب'),
+      subtitle: t('group_details.resume_student_confirm_subtitle', { name: student.full_name }, `هل تريد استئناف دراسة الطالب "${student.full_name}" في فوج "${en.group_name}" وإعادته إلى قائمة الطلبة النشطين؟`),
+      confirmText: t('group_details.confirm_resume_btn', 'استئناف الدراسة'),
+      cancelText: t('common.cancel', 'إلغاء'),
+      variant: 'success',
+      icon: Play
+    });
+    if (!agreed) return;
+
+    try {
+      const res = await api.put(`/groups/${en.group_id}/enrollments/${en.id}/resume`);
+      if (res.success) {
+        showNotification(res.message || t('group_details.resume_success', 'تم استئناف دراسة الطالب بنجاح'), 'success');
+        await fetchDossier();
+      }
+    } catch (err) {
+      console.error('resume student error:', err);
+      showNotification(err.response?.data?.message || err.message || t('group_details.resume_error', 'حدث خطأ أثناء استئناف دراسة الطالب'), 'error');
+    }
+  };
+
+  const handleRefundSuccess = (refundData, msg) => {
+    showNotification(msg || t('refund.success_notification', 'تم تسجيل استرداد المبلغ بنجاح'), 'success');
+    fetchDossier();
+    setSelectedPaymentForReceipt({
+      id: refundData.id,
+      receipt_no: refundData.receipt_no,
+      amount: refundData.amount,
+      payment_date: refundData.refund_date || refundData.payment_date,
+      refund_date: refundData.refund_date,
+      month_ref: refundData.month_ref,
+      payment_status: 'REFUNDED',
+      student_name: refundData.student_name || student?.full_name,
+      reg_no: refundData.reg_no || student?.reg_no,
+      group_name: refundData.group_name || enrollmentForRefund?.groupObj?.name,
+      academic_year_label: enrollmentForRefund?.groupObj?.academic_year_label,
+      notes: refundData.notes
+    });
+    setReceiptModalOpen(true);
+  };
 
   const handleOpenSellModal = () => {
     setSellProductModalOpen(true);
@@ -428,6 +596,16 @@ export default function StudentProfilePage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => handlePrintBadge(null)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-sm transition-all hover:scale-[1.02] cursor-pointer"
+            title={t('preschool.print_single_badge', 'طباعة الشارة')}
+          >
+            <Baby className="w-4 h-4" />
+            <span>{t('preschool.badge_short', 'الشارة')}</span>
+          </button>
+
           <button
             type="button"
             onClick={handleOpenSellModal}
@@ -743,6 +921,7 @@ export default function StudentProfilePage() {
             {enrollments.map((en) => {
               const isActive = en.status === 'ACTIVE';
               const isTransferred = en.status === 'TRANSFERRED';
+              const isDropped = en.status === 'DROPPED';
 
               return (
                 <div key={en.id} className="p-5 bg-surface-card border border-border rounded-2xl shadow-sm space-y-4">
@@ -751,9 +930,21 @@ export default function StudentProfilePage() {
                       {t('student_profile.academic_year_label', { year: en.academic_year_label })}
                     </span>
                     <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                      isActive ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'
+                      isActive 
+                        ? 'bg-emerald-500/10 text-emerald-600' 
+                        : isTransferred 
+                        ? 'bg-amber-500/10 text-amber-600' 
+                        : isDropped
+                        ? 'bg-rose-500/10 text-rose-600'
+                        : 'bg-slate-500/10 text-slate-600'
                     }`}>
-                      {isActive ? t('student_profile.status_active') : isTransferred ? t('student_profile.status_transferred') : t('student_profile.status_completed')}
+                      {isActive 
+                        ? t('student_profile.status_active') 
+                        : isTransferred 
+                        ? t('student_profile.status_transferred') 
+                        : isDropped
+                        ? t('group_details.stopped_status', 'موقف / منسحب')
+                        : t('student_profile.status_completed')}
                     </span>
                   </div>
 
@@ -777,21 +968,61 @@ export default function StudentProfilePage() {
                     </div>
                   </div>
 
-                  {isActive && (
-                    <div className="pt-3 border-t border-border">
+                  {/* Actions row: Badge, Transfer, Stop, Resume */}
+                  <div className="pt-3 border-t border-border flex items-center gap-2 flex-wrap">
+                    {/* Badge Print button */}
+                    <button
+                      type="button"
+                      onClick={() => handlePrintBadge(en)}
+                      className="flex-1 min-w-[90px] flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-purple-500/10 hover:bg-purple-600 hover:text-white text-purple-700 dark:text-purple-300 text-xs font-bold border border-purple-500/20 transition-all cursor-pointer"
+                      title={t('preschool.print_single_badge', 'طباعة الشارة')}
+                    >
+                      <Baby className="w-3.5 h-3.5" />
+                      <span>{t('preschool.badge_short', 'الشارة')}</span>
+                    </button>
+
+                    {/* Transfer button (if active) */}
+                    {isActive && (
                       <button
                         type="button"
                         onClick={() => {
                           setSelectedEnrollmentForTransfer(en);
                           setTransferModalOpen(true);
                         }}
-                        className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500 hover:text-white text-amber-700 dark:text-amber-300 text-xs font-bold transition-colors"
+                        className="flex-1 min-w-[90px] flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-amber-500/10 hover:bg-amber-500 hover:text-white text-amber-700 dark:text-amber-300 text-xs font-bold border border-amber-500/20 transition-all cursor-pointer"
+                        title={t('student_profile.transfer_now_btn')}
                       >
                         <ArrowLeftRight className="w-3.5 h-3.5" />
                         <span>{t('student_profile.transfer_now_btn')}</span>
                       </button>
-                    </div>
-                  )}
+                    )}
+
+                    {/* Stop Student button (if active) */}
+                    {isActive && (
+                      <button
+                        type="button"
+                        onClick={() => handleStopEnrollment(en)}
+                        className="flex-1 min-w-[90px] flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-600 hover:text-white text-rose-700 dark:text-rose-400 text-xs font-bold border border-rose-500/20 transition-all cursor-pointer"
+                        title={t('group_details.stop_student_btn_title', 'إيقاف الطالب عن الفوج')}
+                      >
+                        <UserX className="w-3.5 h-3.5" />
+                        <span>{t('group_details.stop_student_btn', 'إيقاف')}</span>
+                      </button>
+                    )}
+
+                    {/* Resume Student button (if dropped / stopped) */}
+                    {isDropped && (
+                      <button
+                        type="button"
+                        onClick={() => handleResumeEnrollment(en)}
+                        className="flex-1 min-w-[90px] flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-600 hover:text-white text-emerald-700 dark:text-emerald-400 text-xs font-bold border border-emerald-500/20 transition-all cursor-pointer"
+                        title={t('group_details.resume_student_btn_title', 'استئناف دراسة الطالب في الفوج')}
+                      >
+                        <Play className="w-3.5 h-3.5" />
+                        <span>{t('group_details.resume_student_btn', 'استئناف')}</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -828,7 +1059,7 @@ export default function StudentProfilePage() {
                   <tbody className="divide-y divide-border">
                     {tahfizLogs.map((tItem) => (
                       <tr key={tItem.id} className="hover:bg-surface/50">
-                        <td className="p-3 font-mono">{tItem.date?.split('T')[0]}</td>
+                        <td className="p-3 font-mono">{DateTimeFormatter.formatDate(tItem.date)}</td>
                         <td className="p-3 font-bold">{tItem.group_name}</td>
                         <td className="p-3">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -855,7 +1086,7 @@ export default function StudentProfilePage() {
                   <div key={tItem.id} className="p-4 bg-surface rounded-2xl border border-border space-y-2.5 text-xs">
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-text-main text-sm">{tItem.group_name}</span>
-                      <span className="font-mono text-text-muted text-[11px]">{tItem.date?.split('T')[0]}</span>
+                      <span className="font-mono text-text-muted text-[11px]">{DateTimeFormatter.formatDate(tItem.date)}</span>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -903,7 +1134,7 @@ export default function StudentProfilePage() {
                   <tbody className="divide-y divide-border">
                     {preschoolLogs.map((p) => (
                       <tr key={p.id} className="hover:bg-surface/50">
-                        <td className="p-3 font-mono">{p.date?.split('T')[0]}</td>
+                        <td className="p-3 font-mono">{DateTimeFormatter.formatDate(p.date)}</td>
                         <td className="p-3 font-bold">{p.skill_category}</td>
                         <td className="p-3">{p.activity_title || '-'}</td>
                         <td className="p-3 font-bold text-purple-600">{p.score_rating}</td>
@@ -920,7 +1151,7 @@ export default function StudentProfilePage() {
                   <div key={p.id} className="p-4 bg-surface rounded-2xl border border-border space-y-2.5 text-xs">
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-text-main text-sm">{p.skill_category}</span>
-                      <span className="font-mono text-text-muted text-[11px]">{p.date?.split('T')[0]}</span>
+                      <span className="font-mono text-text-muted text-[11px]">{DateTimeFormatter.formatDate(p.date)}</span>
                     </div>
                     {p.activity_title && (
                       <div className="text-text-muted">
@@ -966,7 +1197,7 @@ export default function StudentProfilePage() {
                   <tbody className="divide-y divide-border">
                     {tutoringGrades.map((g) => (
                       <tr key={g.id} className="hover:bg-surface/50">
-                        <td className="p-3 font-mono">{g.exam_date?.split('T')[0]}</td>
+                        <td className="p-3 font-mono">{DateTimeFormatter.formatDate(g.exam_date)}</td>
                         <td className="p-3 font-bold">{g.group_name} ({g.subject_name || '-'})</td>
                         <td className="p-3 font-bold">{g.exam_title}</td>
                         <td className="p-3 font-mono font-bold text-blue-600 text-sm">
@@ -985,7 +1216,7 @@ export default function StudentProfilePage() {
                   <div key={g.id} className="p-4 bg-surface rounded-2xl border border-border space-y-2.5 text-xs">
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-text-main text-sm">{g.group_name} ({g.subject_name || '-'})</span>
-                      <span className="font-mono text-text-muted text-[11px]">{g.exam_date?.split('T')[0]}</span>
+                      <span className="font-mono text-text-muted text-[11px]">{DateTimeFormatter.formatDate(g.exam_date)}</span>
                     </div>
                     <div>
                       <span className="text-[10px] text-text-muted block">{t('student_profile.table_exam_title')}</span>
@@ -1461,6 +1692,38 @@ export default function StudentProfilePage() {
         />
       )}
 
+      {/* Refund Modal */}
+      {refundModalOpen && enrollmentForRefund && (
+        <RefundModal
+          isOpen={refundModalOpen}
+          onClose={() => {
+            setRefundModalOpen(false);
+            setEnrollmentForRefund(null);
+          }}
+          student={enrollmentForRefund.studentObj}
+          group={enrollmentForRefund.groupObj}
+          monthRef={enrollmentForRefund.targetMonth}
+          onSuccess={handleRefundSuccess}
+        />
+      )}
+
+      {/* Preschool Badges Print Modal */}
+      {badgeModalOpen && (
+        <PreschoolBadgesPrintModal
+          isOpen={badgeModalOpen}
+          onClose={() => {
+            setBadgeModalOpen(false);
+            setSelectedGroupForBadge(null);
+          }}
+          group={selectedGroupForBadge}
+          singleStudent={{
+            ...student,
+            student_id: student.id,
+            student_name: student.full_name
+          }}
+        />
+      )}
+
       {/* Sale Receipt Modal */}
       {saleReceiptModalOpen && selectedSaleForReceipt && (
         <SaleReceiptModal
@@ -1696,8 +1959,7 @@ export default function StudentProfilePage() {
 
               <div>
                 <label className="block text-xs font-bold text-text-main mb-1">{t('common.date')}</label>
-                <input
-                  type="date"
+                <DateInput
                   required
                   value={payDebtFormData.payment_date}
                   onChange={(e) => setPayDebtFormData({ ...payDebtFormData, payment_date: e.target.value })}
@@ -1825,8 +2087,7 @@ export default function StudentProfilePage() {
 
                 <div>
                   <label className="block text-xs font-bold text-text-main mb-1">{t('student_profile.dob')}</label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={editFormData.dob}
                     onChange={(e) => setEditFormData({ ...editFormData, dob: e.target.value })}
                     className="w-full p-2.5 bg-surface border border-border rounded-xl text-xs text-text-main focus:border-primary outline-none"
