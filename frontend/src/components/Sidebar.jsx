@@ -17,7 +17,8 @@ import {
   CalendarDays,
   LogOut,
   History,
-  HelpCircle
+  HelpCircle,
+  ShoppingBag
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAcademicYear } from '../context/AcademicYearContext';
@@ -72,6 +73,7 @@ export default function Sidebar() {
       id: 'finance',
       items: [
         { to: '/finance', label: t('sidebar.finance'), icon: Wallet, perm: 'finance' },
+        { to: '/products', label: t('sidebar.products', 'المتجر والمبيعات'), icon: ShoppingBag, perm: 'finance' },
       ]
     },
     {

@@ -17,6 +17,7 @@ import GroupDetailsPage from './pages/GroupDetailsPage';
 import StudentsPage from './pages/StudentsPage';
 import StudentProfilePage from './pages/StudentProfilePage';
 import FinancePage from './pages/FinancePage';
+import ProductsPage from './pages/ProductsPage';
 import TransfersPage from './pages/TransfersPage';
 import RolloverPage from './pages/RolloverPage';
 import SettingsPage from './pages/SettingsPage';
@@ -76,6 +77,7 @@ function AppContent() {
             <Route path="/students" element={<StudentsPage />} />
             <Route path="/students/:id" element={<StudentProfilePage />} />
             <Route path="/finance" element={<FinancePage />} />
+            <Route path="/products" element={<ProductsPage />} />
             <Route path="/transfers" element={<TransfersPage />} />
             <Route path="/rollover" element={<RolloverPage />} />
             <Route path="/teachers" element={<TeachersPage />} />

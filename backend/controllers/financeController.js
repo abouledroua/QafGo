@@ -1,5 +1,6 @@
 import pool from '../config/db.js';
 import { logActivity } from '../utils/auditLogger.js';
+import { getConsecutiveMonths } from '../utils/dateTimeFormatter.js';
 
 export const getFinanceOverview = async (req, res) => {
   try {
@@ -18,6 +19,17 @@ export const getFinanceOverview = async (req, res) => {
       WHERE academic_year_id = ?
     `, [academic_year_id]);
 
+    // 1.1 Product sales revenue and remaining debt
+    const [productSalesStats] = await pool.query(`
+      SELECT 
+        COALESCE(SUM(paid_amount), 0.00) AS total_products_revenue,
+        COALESCE(SUM(remaining_debt), 0.00) AS total_products_debt,
+        COALESCE(SUM(total_amount), 0.00) AS total_products_sales_volume,
+        COUNT(CASE WHEN remaining_debt > 0 THEN 1 END) AS unpaid_sales_count
+      FROM product_sales
+      WHERE academic_year_id = ? OR academic_year_id IS NULL
+    `, [academic_year_id]);
+
     // 2. Active students breakdown by group pricing & exemptions
     const [enrollmentStats] = await pool.query(`
       SELECT 
@@ -31,11 +43,21 @@ export const getFinanceOverview = async (req, res) => {
       WHERE e.academic_year_id = ? AND e.status = 'ACTIVE'
     `, [academic_year_id]);
 
+    const tuitionRevenue = parseFloat(paymentStats[0]?.total_revenue || 0);
+    const productsRevenue = parseFloat(productSalesStats[0]?.total_products_revenue || 0);
+    const combinedTotalRevenue = Math.round((tuitionRevenue + productsRevenue) * 100) / 100;
+
     return res.json({
       success: true,
       data: {
-        financial: paymentStats[0],
-        enrollments: enrollmentStats[0]
+        financial: {
+          ...paymentStats[0],
+          tuition_revenue: tuitionRevenue,
+          products_revenue: productsRevenue,
+          total_revenue: combinedTotalRevenue
+        },
+        enrollments: enrollmentStats[0],
+        products: productSalesStats[0]
       }
     });
   } catch (error) {
@@ -106,6 +128,7 @@ export const createPaymentOrVoucher = async (req, res) => {
       amount,
       payment_date,
       month_ref,
+      months_count = 1,
       payment_status = 'PAID',
       notes
     } = req.body;
@@ -113,6 +136,9 @@ export const createPaymentOrVoucher = async (req, res) => {
     if (!academic_year_id || !student_id || !group_id || !month_ref || !payment_date) {
       return res.status(400).json({ success: false, message: req.t('bad_request') });
     }
+
+    const count = Math.max(1, parseInt(months_count, 10) || 1);
+    const monthsList = getConsecutiveMonths(month_ref, count);
 
     // Fetch group & student enrollment info to check expected fee
     const [enrollments] = await pool.query(`
@@ -141,85 +167,154 @@ export const createPaymentOrVoucher = async (req, res) => {
     }
     expectedFee = Math.round(expectedFee * 100) / 100;
 
-    // Check existing payments for this month
+    // Check existing payments for all target months
     const [existing] = await pool.query(`
-      SELECT id, receipt_no, amount, payment_status FROM payments 
-      WHERE academic_year_id = ? AND student_id = ? AND group_id = ? AND month_ref = ?
-    `, [academic_year_id, student_id, group_id, month_ref]);
+      SELECT id, receipt_no, amount, payment_status, month_ref FROM payments 
+      WHERE academic_year_id = ? AND student_id = ? AND group_id = ? AND month_ref IN (?)
+    `, [academic_year_id, student_id, group_id, monthsList]);
 
-    if (payment_status === 'EXEMPTED') {
-      const hasExemption = existing.some(e => e.payment_status === 'EXEMPTED');
-      if (hasExemption) {
-        return res.status(400).json({
-          success: false,
-          message: req.t('duplicate_receipt_error', { receipt_no: existing[0].receipt_no })
-        });
+    const alreadySettledMonths = [];
+    for (const m of monthsList) {
+      const existingForMonth = existing.filter(e => e.month_ref === m);
+      if (payment_status === 'EXEMPTED') {
+        const hasExemption = existingForMonth.some(e => e.payment_status === 'EXEMPTED');
+        if (hasExemption) {
+          alreadySettledMonths.push({ month: m, receipt_no: existingForMonth[0].receipt_no });
+        }
+      } else {
+        const totalPaidSoFar = existingForMonth
+          .filter(e => e.payment_status === 'PAID')
+          .reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
+        if (existingForMonth.length > 0 && expectedFee > 0 && totalPaidSoFar >= expectedFee) {
+          alreadySettledMonths.push({ month: m, receipt_no: existingForMonth[0].receipt_no });
+        }
       }
-    } else {
-      // PAID: Check if already fully settled
-      const totalPaidSoFar = existing
-        .filter(e => e.payment_status === 'PAID')
-        .reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
+    }
 
-      if (existing.length > 0 && expectedFee > 0 && totalPaidSoFar >= expectedFee) {
+    if (alreadySettledMonths.length > 0) {
+      if (alreadySettledMonths.length === 1 && count === 1) {
         return res.status(400).json({
           success: false,
-          message: req.t('duplicate_receipt_error', { receipt_no: existing[0].receipt_no })
+          message: req.t('duplicate_receipt_error', { receipt_no: alreadySettledMonths[0].receipt_no })
+        });
+      } else {
+        const conflictStr = alreadySettledMonths.map(c => `${c.month} (${c.receipt_no})`).join(', ');
+        return res.status(400).json({
+          success: false,
+          message: req.t('duplicate_receipt_multi_error', { months: conflictStr })
         });
       }
     }
 
-    // Generate unique receipt or exemption voucher number
+    // Generate unique receipt or exemption voucher base number
     const yearShort = new Date().getFullYear().toString().slice(-2);
     const randomCode = Math.floor(10000 + Math.random() * 90000);
     const prefix = payment_status === 'EXEMPTED' ? 'EXM' : 'REC';
-    const receipt_no = `${prefix}-${yearShort}-${randomCode}`;
+    const baseReceiptNo = `${prefix}-${yearShort}-${randomCode}`;
 
-    const finalAmount = payment_status === 'EXEMPTED' ? 0.00 : parseFloat(amount || 0.00);
+    const totalAmount = payment_status === 'EXEMPTED' ? 0.00 : parseFloat(amount || 0.00);
+    const perMonthAmount = Math.floor((totalAmount / count) * 100) / 100;
+    const amountsPerMonth = [];
+    let allocated = 0;
+    for (let i = 0; i < count; i++) {
+      if (i === count - 1) {
+        amountsPerMonth.push(Math.round((totalAmount - allocated) * 100) / 100);
+      } else {
+        amountsPerMonth.push(perMonthAmount);
+        allocated += perMonthAmount;
+      }
+    }
+
     const userId = req.user?.id || null;
     const deviceId = req.deviceId || null;
 
-    const [result] = await pool.query(`
-      INSERT INTO payments (
-        academic_year_id, student_id, group_id, amount, payment_date, month_ref, receipt_no, payment_status, notes, user_id, device_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      academic_year_id,
-      student_id,
-      group_id,
-      finalAmount,
-      payment_date,
-      month_ref,
-      receipt_no,
-      payment_status,
-      notes || (payment_status === 'EXEMPTED' ? 'وصل إعفاء كامل 100% معتمد' : 'دفع اشتراك شهري'),
-      userId,
-      deviceId
-    ]);
+    const connection = await pool.getConnection();
+    let firstInsertId = null;
+    const insertedReceipts = [];
+
+    try {
+      await connection.beginTransaction();
+
+      for (let i = 0; i < count; i++) {
+        const m = monthsList[i];
+        const mAmount = payment_status === 'EXEMPTED' ? 0.00 : amountsPerMonth[i];
+        const mReceiptNo = count === 1 ? baseReceiptNo : `${baseReceiptNo}-${i + 1}`;
+        insertedReceipts.push(mReceiptNo);
+
+        let mNotes = '';
+        if (count === 1) {
+          mNotes = notes || (payment_status === 'EXEMPTED' ? 'وصل إعفاء كامل 100% معتمد' : 'دفع اشتراك شهري');
+        } else {
+          const partInfo = `دفعة شهر ${m} (${i + 1}/${count}) [الوصل الأساسي: ${baseReceiptNo}]`;
+          mNotes = notes ? `${notes} | ${partInfo}` : partInfo;
+        }
+
+        const [insertRes] = await connection.query(`
+          INSERT INTO payments (
+            academic_year_id, student_id, group_id, amount, payment_date, month_ref, receipt_no, payment_status, notes, user_id, device_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          academic_year_id,
+          student_id,
+          group_id,
+          mAmount,
+          payment_date,
+          m,
+          mReceiptNo,
+          payment_status,
+          mNotes,
+          userId,
+          deviceId
+        ]);
+
+        if (i === 0) {
+          firstInsertId = insertRes.insertId;
+        }
+      }
+
+      await connection.commit();
+    } catch (txErr) {
+      await connection.rollback();
+      throw txErr;
+    } finally {
+      connection.release();
+    }
 
     const [stRow] = await pool.query('SELECT full_name, reg_no FROM students WHERE id = ?', [student_id]);
     const studentName = stRow?.[0]?.full_name || '';
     const [gpRow] = await pool.query('SELECT name FROM groups WHERE id = ?', [group_id]);
     const groupName = gpRow?.[0]?.name || '';
 
+    const coveredMonthsLabel = count > 1
+      ? `${monthsList[0]} → ${monthsList[monthsList.length - 1]}`
+      : month_ref;
+
     logActivity(req, {
       action_type: payment_status === 'EXEMPTED' ? 'EXEMPTION' : 'PAYMENT',
       data_type: 'PAYMENT',
-      entity_id: result.insertId,
-      entity_name: receipt_no,
-      details: payment_status === 'EXEMPTED'
-        ? `إصدار وصل إعفاء رقم ${receipt_no} للطالب "${studentName}" لفوج "${groupName}" لشهر ${month_ref}`
-        : `تسجيل وصل دفع رقم ${receipt_no} للطالب "${studentName}" لفوج "${groupName}" لشهر ${month_ref} بمبلغ ${finalAmount} دج`
+      entity_id: firstInsertId,
+      entity_name: baseReceiptNo,
+      details: count === 1
+        ? (payment_status === 'EXEMPTED'
+            ? `إصدار وصل إعفاء رقم ${baseReceiptNo} للطالب "${studentName}" لفوج "${groupName}" لشهر ${month_ref}`
+            : `تسجيل وصل دفع رقم ${baseReceiptNo} للطالب "${studentName}" لفوج "${groupName}" لشهر ${month_ref} بمبلغ ${totalAmount} دج`)
+        : (payment_status === 'EXEMPTED'
+            ? `إصدار وصل إعفاء رقم ${baseReceiptNo} (${count} أشهر: ${coveredMonthsLabel}) للطالب "${studentName}" لفوج "${groupName}"`
+            : `تسجيل وصل دفع رقم ${baseReceiptNo} لـ ${count} أشهر (${coveredMonthsLabel}) للطالب "${studentName}" لفوج "${groupName}" بمبلغ إجمالي ${totalAmount} دج`)
     });
 
     return res.status(201).json({
       success: true,
       message: req.t('payment_recorded_success'),
       data: {
-        id: result.insertId,
-        receipt_no,
-        amount: finalAmount,
-        payment_status
+        id: firstInsertId,
+        receipt_no: baseReceiptNo,
+        receipt_numbers: insertedReceipts,
+        amount: totalAmount,
+        payment_status,
+        months_count: count,
+        month_ref: count > 1 ? `${coveredMonthsLabel}` : month_ref,
+        months: monthsList
       }
     });
   } catch (error) {

@@ -545,9 +545,16 @@ export default function StudentsPage() {
                 <div className="pt-2 border-t border-border/60 flex items-center justify-between text-xs">
                   <span className="text-[11px] font-bold text-text-muted">{t('students.table_fee_status')}:</span>
                   {student.has_unpaid ? (
-                    <div className="inline-flex items-center gap-1.5 font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2.5 py-1 rounded-xl border border-rose-500/20">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                      <span>{t('students.status_unpaid_badge')}: {student.unpaid_amount?.toLocaleString()} {t('students.currency_dzd')}</span>
+                    <div className="inline-flex flex-col items-end gap-0.5">
+                      <div className="inline-flex items-center gap-1.5 font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2.5 py-1 rounded-xl border border-rose-500/20">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        <span>{t('students.status_unpaid_badge')}: {student.unpaid_amount?.toLocaleString()} {t('students.currency_dzd')}</span>
+                      </div>
+                      {student.product_debt > 0 && (
+                        <span className="text-[10px] text-amber-600 font-bold px-1">
+                          {t('products.product_debt_short', 'منها مشتريات:')} {student.product_debt.toLocaleString()} {t('common.currency')}
+                        </span>
+                      )}
                     </div>
                   ) : student.financial_status === 'PAID' ? (
                     <div className="inline-flex items-center gap-1.5 font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/20">
@@ -712,11 +719,18 @@ export default function StudentsPage() {
                               <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                               <span>{t('students.status_unpaid_badge')}: {student.unpaid_amount?.toLocaleString()} {t('students.currency_dzd')}</span>
                             </span>
-                            {student.unpaid_groups?.length > 0 && (
-                              <span className="text-[10px] text-rose-500/80 font-medium px-1 truncate max-w-[140px]" title={student.unpaid_groups.join(', ')}>
-                                {student.unpaid_groups.join(', ')}
-                              </span>
-                            )}
+                            <div className="flex flex-wrap gap-1 text-[10px]">
+                              {student.unpaid_groups?.length > 0 && (
+                                <span className="text-rose-500/80 font-medium px-1 truncate max-w-[140px]" title={student.unpaid_groups.join(', ')}>
+                                  {student.unpaid_groups.join(', ')}
+                                </span>
+                              )}
+                              {student.product_debt > 0 && (
+                                <span className="text-amber-600 dark:text-amber-400 font-bold px-1">
+                                  {t('products.product_debt_short', 'مشتريات:')} {student.product_debt.toLocaleString()} {t('common.currency')}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         ) : student.financial_status === 'PAID' ? (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">

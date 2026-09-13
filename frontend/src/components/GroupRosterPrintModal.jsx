@@ -1,31 +1,42 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Printer, X, Users, Calendar, MapPin, Clock, Award, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
 import { useLanguage } from '../context/LanguageContext';
 import { DateTimeFormatter } from '../utils/dateTimeFormatter';
 import QafGoLogo from './QafGoLogo';
 
-export default function GroupRosterPrintModal({ isOpen, onClose, group }) {
+export default function GroupRosterPrintModal({ isOpen, onClose, group, includeTransferredDefault = false }) {
   const { settings } = useSettings();
   const { t, isRtl, dir } = useLanguage();
 
+  const [includeTransferred, setIncludeTransferred] = useState(includeTransferredDefault);
   const [activeOnly, setActiveOnly] = useState(false);
   const [printDate, setPrintDate] = useState('');
 
-  // Refresh print timestamp whenever modal opens
+  // Sync with prop whenever modal opens
   useEffect(() => {
     if (isOpen) {
+      document.body.classList.add('has-print-modal');
+      setIncludeTransferred(includeTransferredDefault);
       const now = new Date();
       setPrintDate(DateTimeFormatter.formatDateTime(now, { withSeconds: true }));
+    } else {
+      document.body.classList.remove('has-print-modal');
     }
-  }, [isOpen]);
+    return () => {
+      document.body.classList.remove('has-print-modal');
+    };
+  }, [isOpen, includeTransferredDefault]);
 
   if (!isOpen || !group) return null;
 
   const rawStudents = group.students || [];
-  const filteredStudents = activeOnly 
-    ? rawStudents.filter(s => s.enrollment_status === 'ACTIVE')
-    : rawStudents;
+  const filteredStudents = rawStudents.filter(s => {
+    if (!includeTransferred && s.enrollment_status === 'TRANSFERRED') return false;
+    if (activeOnly && s.enrollment_status !== 'ACTIVE') return false;
+    return true;
+  });
 
   const handlePrint = () => {
     // Update timestamp right before printing
@@ -42,9 +53,9 @@ export default function GroupRosterPrintModal({ isOpen, onClose, group }) {
     return group.track_name || '';
   };
 
-  return (
+  return createPortal(
     <div 
-      className="fixed inset-0 z-50 flex items-start justify-center p-2 sm:p-4 md:p-6 bg-black/70 backdrop-blur-xs overflow-y-auto print:static print:p-0 print:m-0 print:bg-white print:overflow-visible print:block"
+      className="fixed inset-0 z-[9999] flex items-start justify-center p-2 sm:p-4 md:p-6 bg-black/70 backdrop-blur-xs overflow-y-auto print-portal-container print:static print:p-0 print:m-0 print:bg-white print:overflow-visible print:block"
       dir={dir}
     >
       {/* Modal Container */}
@@ -67,6 +78,17 @@ export default function GroupRosterPrintModal({ isOpen, onClose, group }) {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Transferred checkbox toggle */}
+            <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-slate-200/80 hover:bg-slate-200 px-2.5 py-1.5 rounded-xl cursor-pointer select-none transition-colors">
+              <input
+                type="checkbox"
+                checked={includeTransferred}
+                onChange={(e) => setIncludeTransferred(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-slate-300 text-primary focus:ring-primary/20 accent-blue-600 cursor-pointer"
+              />
+              <span>{t('group_details.show_transferred_checkbox', 'إظهار الطلبة المحولين')}</span>
+            </label>
+
             {/* Filter Toggle: All vs Active Only */}
             <div className="flex items-center bg-slate-200/80 p-0.5 rounded-xl text-xs font-bold">
               <button
@@ -76,7 +98,7 @@ export default function GroupRosterPrintModal({ isOpen, onClose, group }) {
                   !activeOnly ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                {t('group_details.print_filter_all')} ({rawStudents.length})
+                {t('group_details.print_filter_all')} ({filteredStudents.length})
               </button>
               <button
                 type="button"
@@ -365,6 +387,7 @@ export default function GroupRosterPrintModal({ isOpen, onClose, group }) {
         </div>
 
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

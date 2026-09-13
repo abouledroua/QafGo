@@ -114,6 +114,26 @@ export class DateTimeFormatter {
     return isNaN(fallback.getTime()) ? null : fallback;
   }
 
+  static getConsecutiveMonths(startMonthRef, count = 1) {
+    if (!startMonthRef) return [];
+    const parts = String(startMonthRef).trim().split('-');
+    let year = parseInt(parts[0], 10);
+    let month = parseInt(parts[1], 10);
+    if (isNaN(year) || isNaN(month)) return [startMonthRef];
+
+    const safeCount = Math.max(1, parseInt(count, 10) || 1);
+    const months = [];
+    for (let i = 0; i < safeCount; i++) {
+      months.push(`${year}-${this.pad(month)}`);
+      month++;
+      if (month > 12) {
+        month = 1;
+        year++;
+      }
+    }
+    return months;
+  }
+
   formatDate(date) {
     return DateTimeFormatter.formatDate(date, this.fallback);
   }
@@ -130,5 +150,6 @@ export class DateTimeFormatter {
 export const formatDate = (date, fallback) => DateTimeFormatter.formatDate(date, fallback);
 export const formatTime = (date, options) => DateTimeFormatter.formatTime(date, options);
 export const formatDateTime = (date, options) => DateTimeFormatter.formatDateTime(date, options);
+export const getConsecutiveMonths = (startMonthRef, count) => DateTimeFormatter.getConsecutiveMonths(startMonthRef, count);
 
 export default DateTimeFormatter;

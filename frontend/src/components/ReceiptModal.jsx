@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Printer, CheckCircle2, Award, Building2 } from 'lucide-react';
 import QafGoLogo from './QafGoLogo';
 import { useSettings } from '../context/SettingsContext';
@@ -9,6 +10,17 @@ export default function ReceiptModal({ isOpen, onClose, payment }) {
   const { settings } = useSettings();
   const { t, isRtl, dir } = useLanguage();
 
+  useEffect(() => {
+    if (isOpen) {
+      document.body.classList.add('has-print-modal');
+    } else {
+      document.body.classList.remove('has-print-modal');
+    }
+    return () => {
+      document.body.classList.remove('has-print-modal');
+    };
+  }, [isOpen]);
+
   if (!isOpen || !payment) return null;
 
   const isExempt = payment.payment_status === 'EXEMPTED';
@@ -18,9 +30,9 @@ export default function ReceiptModal({ isOpen, onClose, payment }) {
     window.print();
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn" dir={dir}>
-      <div className="w-full max-w-2xl bg-white text-slate-900 border border-slate-200 rounded-3xl shadow-2xl overflow-hidden transition-all print:m-0 print:w-full print:border-none print:shadow-none">
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn print-portal-container print:static print:p-0 print:m-0 print:bg-white print:overflow-visible print:block" dir={dir}>
+      <div className="w-full max-w-2xl bg-white text-slate-900 border border-slate-200 rounded-3xl shadow-2xl overflow-hidden transition-all print-receipt-card print:m-0 print:w-full print:border-none print:shadow-none print:rounded-none">
         
         {/* Modal Controls (Hidden in print) */}
         <div className="no-print flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50">
@@ -104,7 +116,10 @@ export default function ReceiptModal({ isOpen, onClose, payment }) {
               {isExempt ? t('finance.receipt_title_exempt') : t('finance.receipt_title_paid')}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              {payment.academic_year_label} | {t('finance.receipt_month_label')} {payment.month_ref}
+              {payment.academic_year_label ? `${payment.academic_year_label} | ` : ''}
+              {payment.months_count > 1 || String(payment.month_ref).includes('→')
+                ? `${t('finance.covered_period_label', 'الفترة المغطاة')}: ${payment.month_ref}`
+                : `${t('finance.receipt_month_label', 'شهر الاشتراك')}: ${payment.month_ref}`}
             </p>
           </div>
 
@@ -122,6 +137,16 @@ export default function ReceiptModal({ isOpen, onClose, payment }) {
               <span className="text-slate-500">{t('finance.receipt_group_label')}</span>
               <span className="font-bold text-slate-900">{payment.group_name}</span>
             </div>
+            {(payment.months_count > 1 || String(payment.month_ref).includes('→')) && (
+              <div className="flex justify-between py-2 border-b border-slate-100">
+                <span className="text-slate-500">{t('finance.months_count_label', 'مدة الاشتراك')}:</span>
+                <span className="font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-full text-xs font-mono">
+                  {payment.months_count 
+                    ? t('finance.months_count_option', { count: payment.months_count }, `${payment.months_count} أشهر`) 
+                    : payment.month_ref}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between py-2 border-b border-slate-100">
               <span className="text-slate-500">{t('finance.receipt_date_label')}</span>
               <span className="font-mono font-medium text-slate-700">{DateTimeFormatter.formatDate(payment.payment_date)}</span>
@@ -180,6 +205,7 @@ export default function ReceiptModal({ isOpen, onClose, payment }) {
         </div>
 
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

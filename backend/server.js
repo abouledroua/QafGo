@@ -32,6 +32,7 @@ import timetableRoutes from './routes/timetableRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import auditLogRoutes from './routes/auditLogRoutes.js';
 import deviceRoutes from './routes/deviceRoutes.js';
+import productRoutes from './routes/productRoutes.js';
 
 import jwt from 'jsonwebtoken';
 import pool from './config/db.js';
@@ -39,6 +40,7 @@ import i18nMiddleware from './middleware/i18nMiddleware.js';
 import { ensureDefaultSettingsRow } from './controllers/settingsController.js';
 import { ensureDefaultAdminUser } from './controllers/authController.js';
 import { migrateGroupGenderAndUserAccess } from './database/addGroupGenderAndUserAccess.js';
+import { migrateProductsAndSalesTable } from './database/createProductsAndSalesTable.js';
 
 dotenv.config();
 
@@ -109,6 +111,7 @@ app.use('/api/timetable', timetableRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/logs', auditLogRoutes);
 app.use('/api/devices', deviceRoutes);
+app.use('/api/products', productRoutes);
 
 // Error Handler
 app.use((err, req, res, next) => {
@@ -125,6 +128,7 @@ app.listen(PORT, async () => {
     await ensureDefaultSettingsRow();
     await ensureDefaultAdminUser();
     await migrateGroupGenderAndUserAccess();
+    await migrateProductsAndSalesTable();
   } catch (err) {
     console.error('Failed to initialize default database rows on startup:', err);
   }

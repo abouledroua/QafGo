@@ -179,6 +179,33 @@ export class DateTimeFormatter {
     return isNaN(fallback.getTime()) ? null : fallback;
   }
 
+  /**
+   * Generates an array of sequential 'YYYY-MM' strings starting from startMonthRef.
+   * Handles year boundary transitions seamlessly.
+   * @param {string} startMonthRef e.g. '2026-09'
+   * @param {number} count e.g. 3
+   * @returns {string[]} e.g. ['2026-09', '2026-10', '2026-11']
+   */
+  static getConsecutiveMonths(startMonthRef, count = 1) {
+    if (!startMonthRef) return [];
+    const parts = String(startMonthRef).trim().split('-');
+    let year = parseInt(parts[0], 10);
+    let month = parseInt(parts[1], 10);
+    if (isNaN(year) || isNaN(month)) return [startMonthRef];
+
+    const safeCount = Math.max(1, parseInt(count, 10) || 1);
+    const months = [];
+    for (let i = 0; i < safeCount; i++) {
+      months.push(`${year}-${this.pad(month)}`);
+      month++;
+      if (month > 12) {
+        month = 1;
+        year++;
+      }
+    }
+    return months;
+  }
+
   // --- Instance methods (utilizing configured options) ---
 
   formatDate(date) {
@@ -211,5 +238,6 @@ export const formatTime = (date, options) => DateTimeFormatter.formatTime(date, 
 export const formatDateTime = (date, options) => DateTimeFormatter.formatDateTime(date, options);
 export const toInputDate = (date) => DateTimeFormatter.toInputDate(date);
 export const toInputTime = (date) => DateTimeFormatter.toInputTime(date);
+export const getConsecutiveMonths = (startMonthRef, count) => DateTimeFormatter.getConsecutiveMonths(startMonthRef, count);
 
 export default DateTimeFormatter;

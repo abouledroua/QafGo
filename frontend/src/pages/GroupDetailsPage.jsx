@@ -37,15 +37,24 @@ import {
   Printer,
   Wallet,
   CreditCard,
-  XCircle
+  XCircle,
+  AlertCircle,
+  ChevronLeft,
+  PlusCircle,
+  Eye,
+  Trash2,
+  CalendarDays,
+  ListOrdered
 } from 'lucide-react';
 import TransferModal from '../components/TransferModal';
 import SearchableSelect from '../components/SearchableSelect';
 import GroupScheduleBuilder from '../components/GroupScheduleBuilder';
 import GroupEditModal from '../components/GroupEditModal';
 import GroupRosterPrintModal from '../components/GroupRosterPrintModal';
+import GroupAttendancePrintModal from '../components/GroupAttendancePrintModal';
+import PreschoolBadgesPrintModal from '../components/PreschoolBadgesPrintModal';
 import ReceiptModal from '../components/ReceiptModal';
-import { DateTimeFormatter } from '../utils/dateTimeFormatter';
+import { DateTimeFormatter, getConsecutiveMonths } from '../utils/dateTimeFormatter';
 
 export default function GroupDetailsPage() {
   const { id } = useParams();
@@ -75,6 +84,14 @@ export default function GroupDetailsPage() {
 
   // Print Roster Modal state (A4)
   const [printRosterModalOpen, setPrintRosterModalOpen] = useState(false);
+
+  // Print Preschool Badges Modal state
+  const [printBadgesModalOpen, setPrintBadgesModalOpen] = useState(false);
+  const [selectedStudentForBadge, setSelectedStudentForBadge] = useState(null);
+
+  // Print Attendance Modal state (A4 Daily & Monthly)
+  const [printAttendanceModalOpen, setPrintAttendanceModalOpen] = useState(false);
+  const [printAttendanceMode, setPrintAttendanceMode] = useState('DAILY'); // 'DAILY' | 'MONTHLY'
 
   // Change Schedule State
   const [changeScheduleModalOpen, setChangeScheduleModalOpen] = useState(false);
@@ -106,7 +123,27 @@ export default function GroupDetailsPage() {
   // Student Attendance state
   const [attendanceDate, setAttendanceDate] = useState(() => DateTimeFormatter.toInputDate());
   const [attendanceList, setAttendanceList] = useState([]);
+  const [attendanceMeta, setAttendanceMeta] = useState({
+    hasRecord: false,
+    recordedDates: [],
+    scheduledDays: [],
+    isScheduledDay: false,
+    schedule: ''
+  });
   const [savingAttendance, setSavingAttendance] = useState(false);
+  const [createSessionModalOpen, setCreateSessionModalOpen] = useState(false);
+  const [newSessionDate, setNewSessionDate] = useState(() => DateTimeFormatter.toInputDate());
+
+  // Group Sessions History & Subview state ('LIST' = History List | 'SHEET' = Scoring Sheet)
+  const [attendanceSubView, setAttendanceSubView] = useState('LIST');
+  const [sessionsList, setSessionsList] = useState([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+
+  // Edit Session Date modal state
+  const [editDateModalOpen, setEditDateModalOpen] = useState(false);
+  const [editingSessionDate, setEditingSessionDate] = useState('');
+  const [newTargetDate, setNewTargetDate] = useState('');
+  const [updatingDate, setUpdatingDate] = useState(false);
 
   // Transfer modal
   const [transferModalOpen, setTransferModalOpen] = useState(false);
@@ -120,6 +157,16 @@ export default function GroupDetailsPage() {
   const [enrollDiscountType, setEnrollDiscountType] = useState('NONE');
   const [enrollDiscountValue, setEnrollDiscountValue] = useState(0);
 
+  // Toggle showing transferred students in group roster (default false)
+  const [showTransferred, setShowTransferred] = useState(false);
+
+  // Filter group students based on transferred toggle
+  const visibleStudents = useMemo(() => {
+    const list = group?.students || [];
+    if (showTransferred) return list;
+    return list.filter(s => s.enrollment_status !== 'TRANSFERRED');
+  }, [group?.students, showTransferred]);
+
   // Filter out students who are already actively enrolled in this group
   const enrolledStudentIds = useMemo(() => {
     return new Set((group?.students || [])
@@ -127,6 +174,24 @@ export default function GroupDetailsPage() {
       .map(s => s.id)
     );
   }, [group?.students]);
+
+  const totalPresentCount = useMemo(() => {
+    return attendanceList.filter(a => a.status === 'PRESENT' || a.status === 'LATE').length;
+  }, [attendanceList]);
+
+  const totalAbsentCount = useMemo(() => {
+    return attendanceList.filter(a => a.status === 'ABSENT' || a.status === 'UNEXCUSED').length;
+  }, [attendanceList]);
+
+  const averageAttendanceRate = useMemo(() => {
+    if (!sessionsList || sessionsList.length === 0) return 0;
+    const sum = sessionsList.reduce((acc, s) => acc + (s.attendance_rate || 0), 0);
+    return Math.round(sum / sessionsList.length);
+  }, [sessionsList]);
+
+  const activeSessionInfo = useMemo(() => {
+    return sessionsList.find(s => s.date === attendanceDate) || null;
+  }, [sessionsList, attendanceDate]);
 
   const availableStudentsForEnroll = useMemo(() => {
     return allStudents.filter(s => {
@@ -215,17 +280,41 @@ export default function GroupDetailsPage() {
 
   const handleOpenDirectPay = (student) => {
     setPayingStudent(student);
+    const expected = student.payment_info?.expected_amount !== undefined 
+      ? student.payment_info.expected_amount 
+      : (group?.is_free ? 0 : parseFloat(group?.monthly_fee || 0));
     const remaining = student.payment_info?.remaining_amount !== undefined 
       ? student.payment_info.remaining_amount 
-      : (group?.is_free ? 0 : parseFloat(group?.monthly_fee || 0));
+      : expected;
+    const initialFee = remaining > 0 ? remaining : expected;
+
     setPaymentForm({
-      amount: remaining > 0 ? remaining : (student.payment_info?.expected_amount || parseFloat(group?.monthly_fee || 0)),
+      months_count: 1, // Default 1 month
+      single_month_fee: expected > 0 ? expected : initialFee,
+      amount: initialFee,
       payment_date: new Date().toISOString().split('T')[0],
       month_ref: selectedFeeMonth,
       notes: ''
     });
     setDirectPayModalOpen(true);
   };
+
+  const handleDirectPayMonthsCountChange = (val) => {
+    const safeCount = Math.max(1, parseInt(val, 10) || 1);
+    const baseFee = paymentForm.single_month_fee !== undefined 
+      ? paymentForm.single_month_fee 
+      : (payingStudent?.payment_info?.expected_amount || parseFloat(group?.monthly_fee || 0));
+    
+    setPaymentForm(prev => ({
+      ...prev,
+      months_count: safeCount,
+      amount: Math.round(baseFee * safeCount * 100) / 100
+    }));
+  };
+
+  const directPayCoveredMonths = useMemo(() => {
+    return getConsecutiveMonths(paymentForm.month_ref, paymentForm.months_count || 1);
+  }, [paymentForm.month_ref, paymentForm.months_count]);
 
   const handleSubmitDirectPayment = async (e) => {
     e.preventDefault();
@@ -237,6 +326,7 @@ export default function GroupDetailsPage() {
         student_id: payingStudent.student_id,
         group_id: group.id,
         amount: parseFloat(paymentForm.amount || 0),
+        months_count: parseInt(paymentForm.months_count, 10) || 1,
         payment_date: paymentForm.payment_date,
         month_ref: paymentForm.month_ref,
         payment_status: 'PAID',
@@ -252,8 +342,9 @@ export default function GroupDetailsPage() {
             id: res.data.id,
             receipt_no: res.data.receipt_no,
             amount: res.data.amount,
+            months_count: res.data.months_count || paymentForm.months_count || 1,
             payment_date: paymentForm.payment_date,
-            month_ref: paymentForm.month_ref,
+            month_ref: res.data.month_ref || paymentForm.month_ref,
             payment_status: 'PAID',
             student_name: payingStudent.student_name,
             reg_no: payingStudent.reg_no,
@@ -327,7 +418,14 @@ export default function GroupDetailsPage() {
         try {
           const res = await api.get(`/attendance/group/${group.id}?date=${attendanceDate}`);
           if (res.success) {
-            setAttendanceList(res.data);
+            setAttendanceList(res.data || []);
+            setAttendanceMeta({
+              hasRecord: !!res.hasRecord,
+              recordedDates: res.recordedDates || [],
+              scheduledDays: res.scheduledDays || [],
+              isScheduledDay: !!res.isScheduledDay,
+              schedule: res.schedule || group.schedule || ''
+            });
           }
         } catch (err) {
           console.error(err);
@@ -336,7 +434,100 @@ export default function GroupDetailsPage() {
       fetchAttendance();
       fetchTeacherAttendance();
     }
-  }, [activeTab, attendanceDate, group?.id, fetchTeacherAttendance]);
+  }, [activeTab, attendanceDate, group?.id, group?.schedule, fetchTeacherAttendance]);
+
+  // Load recorded sessions history for this group
+  const fetchSessionsList = useCallback(async () => {
+    if (!group?.id) return;
+    try {
+      setLoadingSessions(true);
+      const res = await api.get(`/attendance/group/${group.id}/sessions`);
+      if (res.success) {
+        const fetched = res.data || [];
+        setSessionsList(fetched);
+        if (fetched.length === 0) {
+          setAttendanceSubView('LIST');
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch sessions list:', err);
+    } finally {
+      setLoadingSessions(false);
+    }
+  }, [group?.id]);
+
+  useEffect(() => {
+    if (activeTab === 'ATTENDANCE' && group?.id) {
+      fetchSessionsList();
+    }
+  }, [activeTab, group?.id, fetchSessionsList]);
+
+  // Open specific session details in scoring sheet view
+  const handleOpenSessionDetails = (date) => {
+    setAttendanceDate(date);
+    setAttendanceSubView('SHEET');
+  };
+
+  // Open edit session date modal
+  const handleOpenEditDate = (date) => {
+    setEditingSessionDate(date);
+    setNewTargetDate(date);
+    setEditDateModalOpen(true);
+  };
+
+  // Save updated session date
+  const handleSaveUpdatedDate = async (e) => {
+    e.preventDefault();
+    if (!newTargetDate || newTargetDate === editingSessionDate) {
+      setEditDateModalOpen(false);
+      return;
+    }
+    try {
+      setUpdatingDate(true);
+      const res = await api.put(`/attendance/group/${group.id}/session-date`, {
+        oldDate: editingSessionDate,
+        newDate: newTargetDate
+      });
+      if (res.success) {
+        showNotification(res.message || t('group_details.session_date_updated_success'), 'success');
+        setEditDateModalOpen(false);
+        if (attendanceDate === editingSessionDate) {
+          setAttendanceDate(newTargetDate);
+        }
+        await fetchSessionsList();
+      }
+    } catch (err) {
+      showNotification(err.message || t('common.error'), 'error');
+    } finally {
+      setUpdatingDate(false);
+    }
+  };
+
+  // Cancel / Delete a session and its attendance records
+  const handleDeleteSession = (date) => {
+    confirm({
+      title: t('group_details.cancel_session_confirm_title'),
+      message: t('group_details.cancel_session_confirm_msg', { date: DateTimeFormatter.formatDate(date) }),
+      confirmText: t('common.delete'),
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          const res = await api.delete(`/attendance/group/${group.id}/session`, {
+            data: { date }
+          });
+          if (res.success) {
+            showNotification(res.message || t('group_details.session_cancelled_success'), 'success');
+            await fetchSessionsList();
+            if (attendanceDate === date) {
+              setAttendanceSubView('LIST');
+            }
+          }
+        } catch (err) {
+          showNotification(err.message || t('common.error'), 'error');
+        }
+      }
+    });
+  };
 
   // Load available students for enroll modal
   useEffect(() => {
@@ -574,6 +765,14 @@ export default function GroupDetailsPage() {
 
       if (res.success) {
         showNotification(res.message || t('group_details.save_attendance'), 'success');
+        setAttendanceMeta(prev => ({
+          ...prev,
+          hasRecord: true,
+          recordedDates: prev.recordedDates.includes(attendanceDate)
+            ? prev.recordedDates
+            : [attendanceDate, ...prev.recordedDates].sort().reverse()
+        }));
+        fetchSessionsList();
       }
     } catch (err) {
       showNotification(err.message || t('common.error'), 'error');
@@ -705,7 +904,7 @@ export default function GroupDetailsPage() {
 
   return (
     <div className="space-y-6 animate-fadeIn" dir={dir}>
-      <div className={printRosterModalOpen ? 'no-print space-y-6' : 'space-y-6'}>
+      <div className={(printRosterModalOpen || printAttendanceModalOpen) ? 'no-print space-y-6' : 'space-y-6'}>
       
       {/* Breadcrumb Navigation */}
       <div className="flex items-center gap-2 text-xs font-bold text-text-muted">
@@ -903,6 +1102,21 @@ export default function GroupDetailsPage() {
               <span>{t('group_details.print_roster_btn')}</span>
             </button>
 
+            {group?.track_type === 'PRESCHOOL' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedStudentForBadge(null);
+                  setPrintBadgesModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/30 text-xs font-bold transition-all shadow-xs cursor-pointer"
+                title={t('preschool.print_badges_btn', 'طباعة شارات البراعم')}
+              >
+                <Baby className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                <span>{t('preschool.print_badges_btn', 'طباعة شارات البراعم')}</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleOpenEnrollModal}
@@ -1069,11 +1283,24 @@ export default function GroupDetailsPage() {
       {activeTab === 'ROSTER' && (
         <div className="bg-surface-card border border-border rounded-3xl overflow-hidden shadow-sm">
           <div className="p-4 border-b border-border/80 flex items-center justify-between gap-3 bg-surface/40 flex-wrap">
-            <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 text-primary" />
-              <span className="text-xs font-bold text-text-main">
-                {t('group_details.tab_roster_count', { count: group.students?.length || 0 })}
-              </span>
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-primary" />
+                <span className="text-xs font-bold text-text-main">
+                  {t('group_details.tab_roster_count', { count: visibleStudents?.length || 0 })}
+                </span>
+              </div>
+
+              {/* Checkbox to toggle showing transferred students */}
+              <label className="flex items-center gap-2 text-xs font-bold text-text-muted hover:text-text-main cursor-pointer select-none px-2.5 py-1 rounded-xl bg-surface border border-border/70 hover:border-primary/40 transition-colors shadow-2xs">
+                <input
+                  type="checkbox"
+                  checked={showTransferred}
+                  onChange={(e) => setShowTransferred(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/20 accent-primary cursor-pointer"
+                />
+                <span>{t('group_details.show_transferred_checkbox', 'إظهار الطلبة المحولين')}</span>
+              </label>
             </div>
             <div className="flex items-center gap-3 flex-wrap">
               {!group.is_free && (
@@ -1121,14 +1348,14 @@ export default function GroupDetailsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {group.students?.length === 0 ? (
+                {visibleStudents?.length === 0 ? (
                   <tr>
                     <td colSpan="7" className="p-8 text-center text-text-muted">
                       {t('group_details.no_students_in_group')}
                     </td>
                   </tr>
                 ) : (
-                  group.students?.map((student) => {
+                  visibleStudents?.map((student) => {
                     const isActive = student.enrollment_status === 'ACTIVE';
                     const isTransferred = student.enrollment_status === 'TRANSFERRED';
                     const isFullyExempt = student.discount_type === 'FULL_EXEMPTION' || student.payment_info?.status === 'EXEMPTED';
@@ -1265,6 +1492,21 @@ export default function GroupDetailsPage() {
                               {t('group_details.history_dossier_btn')}
                             </Link>
 
+                            {group?.track_type === 'PRESCHOOL' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedStudentForBadge(student);
+                                  setPrintBadgesModalOpen(true);
+                                }}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-600 hover:text-white text-purple-700 dark:text-purple-300 text-xs font-bold border border-purple-500/20 transition-all cursor-pointer"
+                                title={t('preschool.print_single_badge', 'طباعة الشارة')}
+                              >
+                                <Baby className="w-3.5 h-3.5" />
+                                <span>{t('preschool.badge_short', 'الشارة')}</span>
+                              </button>
+                            )}
+
                             {isActive && (
                               <button
                                 type="button"
@@ -1301,36 +1543,522 @@ export default function GroupDetailsPage() {
         </div>
       )}
 
-      {/* Tab 2: Attendance Marking */}
+      {/* Tab 2: Attendance Marking & Sessions History */}
       {activeTab === 'ATTENDANCE' && (
         <div className="bg-surface-card border border-border rounded-3xl p-6 space-y-6 shadow-sm">
+          {/* Header & Subview Switcher */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border">
             <div className="flex items-center gap-3">
-              <CalendarCheck className="w-6 h-6 text-primary" />
+              <div className="p-2.5 rounded-2xl bg-primary/10 text-primary border border-primary/20">
+                <CalendarCheck className="w-6 h-6" />
+              </div>
               <div>
-                <h3 className="text-lg font-bold text-text-main">{t('group_details.attendance_title')}</h3>
-                <p className="text-xs text-text-muted">
-                  {t('group_details.attendance_date_desc', { date: DateTimeFormatter.formatDate(attendanceDate) })}
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-text-main">{t('group_details.attendance_title')}</h3>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-primary/10 text-primary border border-primary/20">
+                    {t('group_details.sessions_count_badge', { count: sessionsList.length })}
+                  </span>
+                </div>
+                <p className="text-xs text-text-muted mt-0.5">
+                  {attendanceSubView === 'LIST'
+                    ? t('group_details.sessions_history_subtitle')
+                    : t('group_details.attendance_date_desc', { date: DateTimeFormatter.formatDate(attendanceDate) })}
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <input
-                type="date"
-                value={attendanceDate}
-                onChange={(e) => setAttendanceDate(e.target.value)}
-                className="p-2.5 rounded-xl bg-surface border border-border text-sm font-bold text-text-main focus:outline-none"
-              />
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Subview Toggle Buttons: LIST vs SHEET */}
+              <div className="flex items-center bg-surface border border-border p-1 rounded-2xl text-xs font-bold shadow-xs">
+                <button
+                  type="button"
+                  onClick={() => setAttendanceSubView('LIST')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all cursor-pointer ${
+                    attendanceSubView === 'LIST'
+                      ? 'bg-primary text-white shadow-xs'
+                      : 'text-text-muted hover:text-text-main'
+                  }`}
+                >
+                  <ListOrdered className="w-3.5 h-3.5" />
+                  <span>{t('group_details.switch_to_sessions_list')}</span>
+                  {sessionsList.length > 0 && (
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                      attendanceSubView === 'LIST' ? 'bg-white/20 text-white' : 'bg-surface-card text-text-muted'
+                    }`}>
+                      {sessionsList.length}
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={sessionsList.length === 0}
+                  onClick={() => {
+                    if (sessionsList.length === 0) {
+                      showNotification(t('group_details.no_sessions_to_score_hint'), 'warning');
+                      return;
+                    }
+                    setAttendanceSubView('SHEET');
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all ${
+                    sessionsList.length === 0
+                      ? 'text-text-muted/40 cursor-not-allowed opacity-50'
+                      : attendanceSubView === 'SHEET'
+                      ? 'bg-primary text-white shadow-xs cursor-pointer'
+                      : 'text-text-muted hover:text-text-main cursor-pointer'
+                  }`}
+                  title={sessionsList.length === 0 ? t('group_details.no_sessions_to_score_hint') : t('group_details.switch_to_active_sheet')}
+                >
+                  <ClipboardCheck className="w-3.5 h-3.5" />
+                  <span>{t('group_details.switch_to_active_sheet')}</span>
+                </button>
+              </div>
+
+              {/* + New Session Button */}
               <button
                 type="button"
-                onClick={handleSaveAttendance}
-                disabled={savingAttendance}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md shadow-emerald-600/20 transition-all"
+                onClick={() => {
+                  setNewSessionDate(attendanceDate || DateTimeFormatter.toInputDate());
+                  setCreateSessionModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-sm cursor-pointer"
+                title={t('group_details.new_session_btn')}
               >
-                <Save className="w-4 h-4" />
-                <span>{savingAttendance ? t('group_details.saving') : t('group_details.save_attendance')}</span>
+                <PlusCircle className="w-4 h-4" />
+                <span>{t('group_details.new_session_btn')}</span>
               </button>
+
+              {/* Print Monthly / Cycle Register (A4) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setPrintAttendanceMode('MONTHLY');
+                  setPrintAttendanceModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface-card hover:bg-surface border border-border text-xs font-bold text-text-main shadow-xs transition-all cursor-pointer"
+                title={
+                  group.month_calculation_type === 'PER_SESSION' || group.month_calculation_type === 'PER_HOUR'
+                    ? t('group_details.print_cycle_sheet_title', { quota: group.package_quota || '' })
+                    : t('group_details.print_monthly_attendance_btn')
+                }
+              >
+                <Printer className="w-3.5 h-3.5 text-purple-600" />
+                <span>
+                  {group.month_calculation_type === 'PER_SESSION' || group.month_calculation_type === 'PER_HOUR'
+                    ? t('group_details.print_cycle_attendance_btn')
+                    : t('group_details.print_monthly_attendance_btn')}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {(attendanceSubView === 'LIST' || sessionsList.length === 0) ? (
+            /* Subview 1: Sessions History List */
+            <div className="space-y-6 animate-fadeIn">
+              {/* Quick Metrics Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="p-4 bg-surface rounded-2xl border border-border/80 flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-medium text-text-muted block">{t('group_details.sessions_history_title')}</span>
+                    <strong className="text-2xl font-black text-text-main mt-1 block font-mono">{sessionsList.length}</strong>
+                  </div>
+                  <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-600 flex items-center justify-center border border-blue-500/20">
+                    <CalendarDays className="w-5 h-5" />
+                  </div>
+                </div>
+
+                <div className="p-4 bg-surface rounded-2xl border border-border/80 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-text-muted">{t('group_details.average_attendance_rate')}</span>
+                    <span className="text-xs font-black text-emerald-600 font-mono">{averageAttendanceRate}%</span>
+                  </div>
+                  <div className="w-full h-2 bg-surface-card rounded-full overflow-hidden border border-border/60">
+                    <div 
+                      className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.min(100, Math.max(0, averageAttendanceRate))}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="p-4 bg-surface rounded-2xl border border-border/80 flex items-center justify-between">
+                  <div className="min-w-0">
+                    <span className="text-xs font-medium text-text-muted block">{t('group_details.scheduled_days_label')}</span>
+                    <strong className="text-xs font-bold text-text-main mt-1 block truncate">
+                      {group.schedule || attendanceMeta.schedule || t('group_details.unspecified')}
+                    </strong>
+                  </div>
+                  <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-600 flex items-center justify-center border border-purple-500/20 shrink-0">
+                    <Clock className="w-5 h-5" />
+                  </div>
+                </div>
+
+                <div className="p-4 bg-surface rounded-2xl border border-border/80 flex items-center justify-between">
+                  <div className="min-w-0">
+                    <span className="text-xs font-medium text-text-muted block">{t('group_details.last_session_held')}</span>
+                    <strong className="text-xs font-bold text-text-main mt-1 block truncate">
+                      {sessionsList.length > 0 ? DateTimeFormatter.formatDate(sessionsList[0].date) : '-'}
+                    </strong>
+                  </div>
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center border border-amber-500/20 shrink-0">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Sessions Table */}
+              <div className="overflow-hidden border border-border rounded-2xl bg-surface">
+                {loadingSessions ? (
+                  <div className="p-12 text-center text-text-muted text-sm font-bold flex items-center justify-center gap-2">
+                    <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    <span>{t('common.loading')}</span>
+                  </div>
+                ) : sessionsList.length === 0 ? (
+                  <div className="p-12 text-center space-y-4">
+                    <div className="w-14 h-14 rounded-3xl bg-primary/10 text-primary flex items-center justify-center mx-auto border border-primary/20 shadow-inner">
+                      <CalendarDays className="w-7 h-7" />
+                    </div>
+                    <div className="max-w-md mx-auto">
+                      <h4 className="font-bold text-base text-text-main">{t('group_details.no_recorded_sessions_yet')}</h4>
+                      <p className="text-xs text-text-muted mt-1">{t('group_details.empty_sessions_history')}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewSessionDate(DateTimeFormatter.toInputDate());
+                        setCreateSessionModalOpen(true);
+                      }}
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-md transition-all cursor-pointer"
+                    >
+                      <PlusCircle className="w-4 h-4" />
+                      <span>{t('group_details.new_session_btn')}</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-start border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-surface-card border-b border-border text-text-muted font-bold">
+                          <th className="p-3 text-center w-16">#</th>
+                          <th className="p-3 text-start">{t('common.date')}</th>
+                          <th className="p-3 text-start">{t('group_details.supervising_teacher')}</th>
+                          <th className="p-3 text-start">{t('group_details.students_attendance_header')}</th>
+                          <th className="p-3 text-center w-28">{t('common.status')}</th>
+                          <th className="p-3 text-end">{t('common.actions')}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/60">
+                        {sessionsList.map((session) => (
+                          <tr key={session.date} className="hover:bg-surface-card/60 transition-colors">
+                            {/* Session Number */}
+                            <td className="p-3 text-center font-bold">
+                              <span className="inline-block px-2.5 py-1 rounded-xl bg-primary/10 text-primary font-mono text-xs border border-primary/20">
+                                {t('group_details.session_number_label', { number: session.session_number })}
+                              </span>
+                            </td>
+
+                            {/* Date & Day of Week */}
+                            <td className="p-3">
+                              <div className="space-y-1">
+                                <div className="font-bold text-text-main font-mono text-xs">
+                                  {DateTimeFormatter.formatDate(session.date)}
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                    session.is_scheduled_day
+                                      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20'
+                                      : 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20'
+                                  }`}>
+                                    {session.is_scheduled_day
+                                      ? t('group_details.is_scheduled_day_badge')
+                                      : t('group_details.is_not_scheduled_day_badge')}
+                                  </span>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Teacher Info */}
+                            <td className="p-3">
+                              <div className="space-y-0.5">
+                                <span className="font-bold text-text-main text-xs block">
+                                  {session.teacher?.name || '-'}
+                                </span>
+                                {session.teacher?.substitute_name && (
+                                  <span className="text-[10px] text-purple-700 dark:text-purple-300 font-bold bg-purple-50 dark:bg-purple-950/50 px-1.5 py-0.5 rounded border border-purple-200">
+                                    {t('group_details.print_substitute_notice')}: {session.teacher.substitute_name}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Attendance counts & bar */}
+                            <td className="p-3">
+                              <div className="space-y-1.5 max-w-xs">
+                                <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
+                                  <span className="px-2 py-0.5 rounded-lg font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                                    {session.present_count} {t('group_details.status_present')}
+                                  </span>
+                                  {session.absent_count > 0 && (
+                                    <span className="px-2 py-0.5 rounded-lg font-bold bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20">
+                                      {session.absent_count} {t('group_details.status_absent')}
+                                    </span>
+                                  )}
+                                  {session.late_count > 0 && (
+                                    <span className="px-2 py-0.5 rounded-lg font-bold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                                      {session.late_count} {t('group_details.status_late')}
+                                    </span>
+                                  )}
+                                  {session.excused_count > 0 && (
+                                    <span className="px-2 py-0.5 rounded-lg font-bold bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20">
+                                      {session.excused_count} {t('group_details.status_excused')}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1 h-1.5 bg-surface-card rounded-full overflow-hidden border border-border/60">
+                                    <div 
+                                      className="h-full bg-emerald-500 rounded-full"
+                                      style={{ width: `${Math.min(100, Math.max(0, session.attendance_rate))}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-[10px] font-bold font-mono text-text-muted">{session.attendance_rate}%</span>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Status badge */}
+                            <td className="p-3 text-center">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                <span>{t('group_details.session_status_saved')}</span>
+                              </span>
+                            </td>
+
+                            {/* Actions */}
+                            <td className="p-3 text-end">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenSessionDetails(session.date)}
+                                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-primary text-white hover:bg-primary-hover text-xs font-bold shadow-xs transition-all cursor-pointer"
+                                  title={t('group_details.view_session_details')}
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                  <span className="hidden md:inline">{t('group_details.view_session_details')}</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditDate(session.date)}
+                                  className="p-1.5 rounded-xl border border-border bg-surface hover:bg-surface-card text-text-muted hover:text-text-main transition-colors cursor-pointer"
+                                  title={t('group_details.edit_session_date')}
+                                >
+                                  <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAttendanceDate(session.date);
+                                    setPrintAttendanceMode('DAILY');
+                                    setPrintAttendanceModalOpen(true);
+                                  }}
+                                  className="p-1.5 rounded-xl border border-border bg-surface hover:bg-surface-card text-text-muted hover:text-text-main transition-colors cursor-pointer"
+                                  title={t('group_details.print_daily_attendance_btn')}
+                                >
+                                  <Printer className="w-3.5 h-3.5 text-slate-700" />
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteSession(session.date)}
+                                  className="p-1.5 rounded-xl border border-rose-200 dark:border-rose-900 bg-rose-50/50 dark:bg-rose-950/30 text-rose-600 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-colors cursor-pointer"
+                                  title={t('group_details.cancel_session_btn')}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            /* Subview 2: Scoring Sheet */
+            <div className="space-y-6 animate-fadeIn">
+              {/* Back to Sessions list bar & Sheet toolbar */}
+              <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-surface rounded-2xl border border-border text-xs">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setAttendanceSubView('LIST')}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-card hover:bg-surface border border-border text-text-main font-bold transition-all shadow-xs cursor-pointer"
+                  >
+                    {isRtl ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+                    <span>{t('group_details.back_to_sessions_list')}</span>
+                  </button>
+
+                  {activeSessionInfo && (
+                    <span className="px-2.5 py-1 rounded-xl bg-primary/10 text-primary font-bold border border-primary/20">
+                      {t('group_details.session_number_label', { number: activeSessionInfo.session_number })}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Recorded Sessions Quick Navigator */}
+                  {attendanceMeta.recordedDates.length > 0 && (
+                    <div className="flex items-center bg-surface-card border border-border p-0.5 rounded-xl text-xs font-bold shadow-xs">
+                      <button
+                        type="button"
+                        disabled={attendanceMeta.recordedDates.indexOf(attendanceDate) === -1 || attendanceMeta.recordedDates.indexOf(attendanceDate) >= attendanceMeta.recordedDates.length - 1}
+                        onClick={() => {
+                          const idx = attendanceMeta.recordedDates.indexOf(attendanceDate);
+                          if (idx !== -1 && idx < attendanceMeta.recordedDates.length - 1) {
+                            setAttendanceDate(attendanceMeta.recordedDates[idx + 1]);
+                          } else if (idx === -1 && attendanceMeta.recordedDates.length > 0) {
+                            setAttendanceDate(attendanceMeta.recordedDates[0]);
+                          }
+                        }}
+                        className="p-1.5 rounded-lg hover:bg-surface disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer text-text-muted"
+                        title={t('group_details.print_btn_prev_cycle')}
+                      >
+                        {isRtl ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+                      </button>
+
+                      <select
+                        value={attendanceMeta.recordedDates.includes(attendanceDate) ? attendanceDate : ''}
+                        onChange={(e) => {
+                          if (e.target.value) setAttendanceDate(e.target.value);
+                        }}
+                        className="text-xs font-bold text-text-main bg-transparent focus:outline-none cursor-pointer max-w-[160px] sm:max-w-none px-1"
+                      >
+                        <option value="" disabled>
+                          {attendanceMeta.recordedDates.includes(attendanceDate) 
+                            ? `${t('group_details.select_recorded_session')} (${attendanceMeta.recordedDates.length})` 
+                            : t('group_details.select_recorded_session')}
+                        </option>
+                        {attendanceMeta.recordedDates.map((d, sIdx) => (
+                          <option key={d} value={d}>
+                            {DateTimeFormatter.formatDate(d)} - {t('group_details.session_number_label', { number: attendanceMeta.recordedDates.length - sIdx })}
+                          </option>
+                        ))}
+                      </select>
+
+                      <button
+                        type="button"
+                        disabled={attendanceMeta.recordedDates.indexOf(attendanceDate) <= 0}
+                        onClick={() => {
+                          const idx = attendanceMeta.recordedDates.indexOf(attendanceDate);
+                          if (idx > 0) {
+                            setAttendanceDate(attendanceMeta.recordedDates[idx - 1]);
+                          }
+                        }}
+                        className="p-1.5 rounded-lg hover:bg-surface disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer text-text-muted"
+                        title={t('group_details.print_btn_next_cycle')}
+                      >
+                        {isRtl ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Date Input */}
+                  <input
+                    type="date"
+                    value={attendanceDate}
+                    onChange={(e) => setAttendanceDate(e.target.value)}
+                    className="p-2 rounded-xl bg-surface-card border border-border text-xs font-bold text-text-main focus:outline-none cursor-pointer"
+                  />
+
+                  {/* Edit Date button (if recorded) */}
+                  {attendanceMeta.hasRecord && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditDate(attendanceDate)}
+                      className="p-2 rounded-xl bg-surface-card hover:bg-surface border border-border text-xs font-bold text-text-muted hover:text-text-main transition-colors cursor-pointer"
+                      title={t('group_details.edit_session_date')}
+                    >
+                      <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                    </button>
+                  )}
+
+                  {/* Cancel / Delete session (if recorded) */}
+                  {attendanceMeta.hasRecord && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteSession(attendanceDate)}
+                      className="p-2 rounded-xl bg-rose-50/50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-900/50 border border-rose-200 dark:border-rose-900 text-xs font-bold text-rose-600 transition-colors cursor-pointer"
+                      title={t('group_details.cancel_session_btn')}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+
+                  {/* Print Daily Sheet (A4) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPrintAttendanceMode('DAILY');
+                      setPrintAttendanceModalOpen(true);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface-card hover:bg-surface border border-border text-xs font-bold text-text-main shadow-xs transition-all cursor-pointer"
+                    title={t('group_details.print_daily_attendance_btn')}
+                  >
+                    <Printer className="w-3.5 h-3.5 text-blue-600" />
+                    <span>{t('group_details.print_daily_attendance_btn')}</span>
+                  </button>
+
+                  {/* Save Attendance Button */}
+                  <button
+                    type="button"
+                    onClick={handleSaveAttendance}
+                    disabled={savingAttendance}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>{savingAttendance ? t('group_details.saving') : t('group_details.save_attendance')}</span>
+                  </button>
+                </div>
+              </div>
+
+          {/* Top Session Awareness Banner */}
+          <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-surface rounded-2xl border border-border text-xs">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <span className="font-bold text-text-muted">
+                {t('group_details.scheduled_days_label')}
+              </span>
+              <span className="font-bold text-text-main">
+                {group.schedule || attendanceMeta.schedule || t('group_details.unspecified')}
+              </span>
+
+              {attendanceMeta.scheduledDays.length > 0 && (
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                  attendanceMeta.isScheduledDay 
+                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800' 
+                    : 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800'
+                }`}>
+                  {attendanceMeta.isScheduledDay ? t('group_details.is_scheduled_day_badge') : t('group_details.is_not_scheduled_day_badge')}
+                </span>
+              )}
+            </div>
+
+            {/* Session Recorded Status Indicator */}
+            <div className="flex items-center gap-2">
+              {attendanceMeta.hasRecord ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>{t('group_details.session_status_saved')}</span>
+                  <span className="text-[10px] opacity-80">({totalPresentCount} {t('group_details.status_present')} / {totalAbsentCount} {t('group_details.status_absent')})</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl font-bold bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800">
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                  <span>{t('group_details.session_status_not_recorded')}</span>
+                </span>
+              )}
             </div>
           </div>
 
@@ -1593,6 +2321,8 @@ export default function GroupDetailsPage() {
               ))
             )}
           </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -2325,7 +3055,258 @@ export default function GroupDetailsPage() {
         isOpen={printRosterModalOpen}
         onClose={() => setPrintRosterModalOpen(false)}
         group={group}
+        includeTransferredDefault={showTransferred}
       />
+
+      {/* Printable Group Attendance Modal (A4 Daily & Monthly) */}
+      <GroupAttendancePrintModal
+        isOpen={printAttendanceModalOpen}
+        onClose={() => setPrintAttendanceModalOpen(false)}
+        group={group}
+        defaultMode={printAttendanceMode}
+        initialDate={attendanceDate}
+        initialMonth={attendanceDate?.slice(0, 7) || new Date().toISOString().slice(0, 7)}
+        dailyAttendanceList={attendanceList}
+        dailyTeacherAttendance={teacherAttendance}
+      />
+
+      {/* Printable Preschool Student Badges Modal (A4 / Individual) */}
+      <PreschoolBadgesPrintModal
+        isOpen={printBadgesModalOpen}
+        onClose={() => {
+          setPrintBadgesModalOpen(false);
+          setSelectedStudentForBadge(null);
+        }}
+        group={group}
+        singleStudent={selectedStudentForBadge}
+      />
+
+      {/* Create / Record New Session Modal */}
+      {createSessionModalOpen && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn"
+          onClick={() => setCreateSessionModalOpen(false)}
+        >
+          <div 
+            className="w-full max-w-md bg-surface-card border border-border rounded-3xl shadow-2xl overflow-hidden p-6 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center border border-primary/20 shadow-xs">
+                  <PlusCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-text-main">{t('group_details.create_session_modal_title')}</h3>
+                  <p className="text-xs text-text-muted">{group?.name}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreateSessionModalOpen(false)}
+                className="p-1.5 text-text-muted hover:text-text-main hover:bg-surface rounded-xl transition-colors cursor-pointer"
+                title={t('common.close')}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Timetable Schedule Info */}
+            <div className="p-3 bg-surface rounded-2xl border border-border/80 space-y-1 text-xs">
+              <div className="flex items-center justify-between text-text-muted">
+                <span className="font-bold">{t('group_details.scheduled_days_label')}</span>
+                <span className="font-bold text-text-main">{group?.schedule || attendanceMeta.schedule || t('group_details.unspecified')}</span>
+              </div>
+              {group?.teacher_name && (
+                <div className="flex items-center justify-between text-text-muted">
+                  <span className="font-bold">{t('group_details.supervising_teacher')}:</span>
+                  <span className="font-bold text-text-main">{group.teacher_name}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Date Picker & Context Notice */}
+            <div className="space-y-3">
+              <label className="block text-xs font-bold text-text-main">
+                {t('group_details.create_session_date_hint')}
+              </label>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={newSessionDate}
+                  onChange={(e) => setNewSessionDate(e.target.value)}
+                  className="flex-1 p-2.5 rounded-xl bg-surface border border-border text-sm font-bold text-text-main focus:outline-none focus:border-primary cursor-pointer"
+                />
+                <button
+                  type="button"
+                  onClick={() => setNewSessionDate(DateTimeFormatter.toInputDate())}
+                  className="px-3 py-2.5 rounded-xl bg-surface-card hover:bg-surface border border-border text-xs font-bold text-text-main transition-colors cursor-pointer"
+                >
+                  {t('common.today', 'اليوم')}
+                </button>
+              </div>
+
+              {/* Status and Timetable Match Notice */}
+              {(() => {
+                const isAlreadyRecorded = attendanceMeta.recordedDates.includes(newSessionDate);
+                const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+                const dateObj = new Date(`${newSessionDate}T00:00:00`);
+                const selectedDayName = dayNames[dateObj.getDay()];
+                const isScheduled = attendanceMeta.scheduledDays.includes(selectedDayName);
+
+                if (isAlreadyRecorded) {
+                  return (
+                    <div className="p-3 rounded-xl bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/25 text-xs font-bold flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 shrink-0 text-blue-600" />
+                      <span>{t('group_details.session_already_recorded_notice')}</span>
+                    </div>
+                  );
+                }
+
+                if (isScheduled) {
+                  return (
+                    <div className="p-3 rounded-xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25 text-xs font-bold flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                      <span>{t('group_details.official_scheduled_session_notice')}</span>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="p-3 rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/25 text-xs font-bold flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
+                    <span>{t('group_details.compensatory_session_notice')}</span>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex justify-end gap-3 pt-3 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setCreateSessionModalOpen(false)}
+                className="px-4 py-2 text-xs font-bold text-text-muted hover:text-text-main bg-surface rounded-xl border border-border transition-colors cursor-pointer"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAttendanceDate(newSessionDate);
+                  setCreateSessionModalOpen(false);
+                  setAttendanceSubView('SHEET');
+                  setActiveTab('ATTENDANCE');
+                }}
+                className="px-5 py-2 text-xs font-bold text-white bg-primary hover:bg-primary-hover rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-2"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>{t('group_details.create_session_btn_confirm')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Session Date Modal */}
+      {editDateModalOpen && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn"
+          onClick={() => !updatingDate && setEditDateModalOpen(false)}
+        >
+          <div 
+            className="w-full max-w-md bg-surface-card border border-border rounded-3xl shadow-2xl overflow-hidden p-6 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-blue-500/10 text-blue-600 flex items-center justify-center border border-blue-500/20 shadow-xs">
+                  <Edit3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-text-main">{t('group_details.edit_session_date_title')}</h3>
+                  <p className="text-xs text-text-muted">{group?.name}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={updatingDate}
+                onClick={() => setEditDateModalOpen(false)}
+                className="p-1.5 text-text-muted hover:text-text-main hover:bg-surface rounded-xl transition-colors cursor-pointer"
+                title={t('common.close')}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Current Date Info */}
+            <div className="p-3 bg-surface rounded-2xl border border-border/80 space-y-1 text-xs">
+              <div className="flex items-center justify-between text-text-muted">
+                <span>{t('group_details.attendance_date_desc', { date: '' }).replace('{date}', '').trim() || t('group_details.attendance_title')}:</span>
+                <span className="font-bold text-text-main font-mono">{editingSessionDate ? DateTimeFormatter.formatDate(editingSessionDate) : ''}</span>
+              </div>
+            </div>
+
+            {/* New Date Input */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-text-main">
+                {t('group_details.new_session_date_label')} <span className="text-rose-500">*</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={newTargetDate}
+                  onChange={(e) => setNewTargetDate(e.target.value)}
+                  className="flex-1 p-2.5 rounded-xl bg-surface border border-border text-sm font-bold text-text-main focus:outline-none focus:border-primary cursor-pointer"
+                />
+                <button
+                  type="button"
+                  onClick={() => setNewTargetDate(DateTimeFormatter.toInputDate())}
+                  className="px-3 py-2.5 rounded-xl bg-surface-card hover:bg-surface border border-border text-xs font-bold text-text-main transition-colors cursor-pointer"
+                >
+                  {t('common.today', 'اليوم')}
+                </button>
+              </div>
+
+              {/* Conflict warning preview */}
+              {attendanceMeta.recordedDates.includes(newTargetDate) && newTargetDate !== editingSessionDate && (
+                <div className="p-3 rounded-xl bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/25 text-xs font-bold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>{t('group_details.session_date_conflict_error')}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex justify-end gap-3 pt-3 border-t border-border">
+              <button
+                type="button"
+                disabled={updatingDate}
+                onClick={() => setEditDateModalOpen(false)}
+                className="px-4 py-2 text-xs font-bold text-text-muted hover:text-text-main bg-surface rounded-xl border border-border transition-colors cursor-pointer"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                disabled={updatingDate || !newTargetDate || (attendanceMeta.recordedDates.includes(newTargetDate) && newTargetDate !== editingSessionDate)}
+                onClick={handleSaveUpdatedDate}
+                className="px-5 py-2 text-xs font-bold text-white bg-primary hover:bg-primary-hover rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {updatingDate ? (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4" />
+                )}
+                <span>{updatingDate ? t('common.loading') : t('group_details.confirm_update_date_btn')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Direct Payment Modal */}
       {directPayModalOpen && payingStudent && (
@@ -2424,7 +3405,7 @@ export default function GroupDetailsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-text-main mb-1.5">
-                    {t('group_details.direct_pay_month_label')} <span className="text-rose-500">*</span>
+                    {t('group_details.direct_pay_month_label', 'شهر البداية المرجعي')} <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="month"
@@ -2437,7 +3418,7 @@ export default function GroupDetailsPage() {
 
                 <div>
                   <label className="block text-xs font-bold text-text-main mb-1.5">
-                    {t('group_details.direct_pay_date_label')} <span className="text-rose-500">*</span>
+                    {t('group_details.direct_pay_date_label', 'تاريخ الدفع')} <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="date"
@@ -2449,10 +3430,91 @@ export default function GroupDetailsPage() {
                 </div>
               </div>
 
+              {/* Multi-month Selection */}
+              <div className="p-3 bg-surface rounded-2xl border border-border/80 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-text-main flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-primary" />
+                    <span>{t('finance.months_count_label', 'عدد الأشهر المراد دفعها')}</span>
+                  </label>
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                    {paymentForm.months_count > 1 
+                      ? t('finance.months_count_option', { count: paymentForm.months_count }, `${paymentForm.months_count} أشهر`) 
+                      : t('finance.single_month_label', 'شهر واحد (افتراضي)')}
+                  </span>
+                </div>
+
+                {/* Preset Pills */}
+                <div className="grid grid-cols-6 gap-1.5">
+                  {[1, 2, 3, 6, 9, 12].map(cnt => {
+                    const isSelected = (parseInt(paymentForm.months_count, 10) || 1) === cnt;
+                    return (
+                      <button
+                        key={cnt}
+                        type="button"
+                        onClick={() => handleDirectPayMonthsCountChange(cnt)}
+                        className={`py-1.5 px-1 rounded-xl text-xs font-bold transition-all border text-center cursor-pointer ${
+                          isSelected
+                            ? 'bg-primary text-white border-primary shadow-sm ring-2 ring-primary/20'
+                            : 'bg-surface-card hover:bg-surface-hover text-text-muted border-border hover:border-border-hover'
+                        }`}
+                      >
+                        {cnt === 1 ? (isRtl ? '1 (افتراضي)' : '1 (def)') : cnt}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Stepper Input */}
+                <div className="flex items-center gap-2 pt-0.5">
+                  <input
+                    type="number"
+                    min="1"
+                    max="24"
+                    value={paymentForm.months_count || 1}
+                    onChange={(e) => handleDirectPayMonthsCountChange(e.target.value)}
+                    className="w-24 p-2 bg-surface-card border border-border rounded-xl text-xs font-bold text-text-main font-mono text-center focus:outline-none focus:border-primary"
+                  />
+                  <span className="text-xs font-medium text-text-muted">
+                    {paymentForm.months_count > 1 ? t('finance.months_unit', 'أشهر متتالية') : t('finance.month_unit', 'شهر واحد')}
+                  </span>
+                </div>
+
+                {/* Covered Months Preview */}
+                {directPayCoveredMonths.length > 0 && (
+                  <div className="pt-2 border-t border-border/60">
+                    <div className="text-[11px] text-text-muted mb-1.5 flex items-center justify-between">
+                      <span className="font-medium">{t('finance.covered_period_label', 'الفترة المغطاة:')}</span>
+                      <span className="font-mono font-bold text-primary">
+                        {directPayCoveredMonths[0]} → {directPayCoveredMonths[directPayCoveredMonths.length - 1]}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {directPayCoveredMonths.map((m, idx) => (
+                        <span
+                          key={m}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold bg-primary/10 text-primary border border-primary/20"
+                        >
+                          <span className="opacity-60">#{idx + 1}</span>
+                          <span>{m}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div>
-                <label className="block text-xs font-bold text-text-main mb-1.5">
-                  {t('group_details.direct_pay_amount_label')} <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-text-main">
+                    {t('group_details.direct_pay_amount_label', 'المبلغ الإجمالي للدفع')} <span className="text-rose-500">*</span>
+                  </label>
+                  {paymentForm.months_count > 1 && (
+                    <span className="text-[11px] font-mono text-text-muted">
+                      ({paymentForm.single_month_fee || (payingStudent?.payment_info?.expected_amount || parseFloat(group?.monthly_fee || 0))} × {paymentForm.months_count})
+                    </span>
+                  )}
+                </div>
                 <div className="relative">
                   <input
                     type="number"
@@ -2525,6 +3587,19 @@ export default function GroupDetailsPage() {
             setReceiptToPreview(null);
           }}
           payment={receiptToPreview}
+        />
+      )}
+
+      {/* Preschool Badges Print Modal */}
+      {printBadgesModalOpen && (
+        <PreschoolBadgesPrintModal
+          isOpen={printBadgesModalOpen}
+          onClose={() => {
+            setPrintBadgesModalOpen(false);
+            setSelectedStudentForBadge(null);
+          }}
+          group={group}
+          singleStudent={selectedStudentForBadge}
         />
       )}
 

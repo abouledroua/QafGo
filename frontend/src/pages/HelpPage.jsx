@@ -27,6 +27,8 @@ import {
   Sparkle,
   ExternalLink,
   Info,
+  ShoppingBag,
+  Baby,
   Image as ImageIcon
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -123,6 +125,10 @@ export default function HelpPage() {
             {
               title: '3. Encaissement Direct & Impression',
               desc: 'Enregistrez le paiement des mensualités directement depuis la liste des élèves avec impression automatique du reçu thermique ou standard. Imprimez la liste d’émargement officielle en un clic.'
+            },
+            {
+              title: '4. Badges Préscolaires & Prérequis de Séance',
+              desc: 'Pour les groupes préscolaires, imprimez des badges d’identification pour les enfants (8 badges par feuille A4 avec lignes de découpe) avec photo et contact d’urgence. L’accès à la grille de notation (Scoring Sheet) exige qu’une séance soit créée.'
             }
           ],
           tips: [
@@ -149,8 +155,8 @@ export default function HelpPage() {
               desc: 'Appliquez un pourcentage de réduction (ex: 20% pour le 2ème enfant) ou une exonération totale (100%) pour les orphelins ou cas sociaux.'
             },
             {
-              title: '3. Dossier Permanent à Vie (Lifetime Dossier)',
-              desc: 'Chaque élève dispose d’un profil unique conservant son historique pluriannuel : groupes fréquentés, progression coranique, badges d’excellence, sanctions et reçus de paiement.'
+              title: '3. Dossier Permanent à Vie & Historique des Dettes',
+              desc: 'Chaque élève dispose d’un profil unique conservant son historique : groupes fréquentés, progression, badges, reçus, ainsi que le grand livre complet de ses dettes et achats de fournitures.'
             }
           ],
           tips: [
@@ -217,6 +223,34 @@ export default function HelpPage() {
           actionLabel: 'Voir le Planning'
         },
         {
+          id: 'store_products',
+          category: 'store',
+          icon: ShoppingBag,
+          color: 'from-amber-500/20 to-rose-500/20 text-rose-600 dark:text-rose-400 border-rose-500/30',
+          title: 'Boutique, Ventes & Gestion des Dettes',
+          summary: 'Gestion des stocks d’articles, vente aux élèves, paiement différé (crédit) et historique des dettes.',
+          steps: [
+            {
+              title: '1. Gestion du Stock & Prix',
+              desc: 'Enregistrez les manuels, corans, et fournitures scolaires avec désignation, quantité en stock, prix d’achat et prix de vente pour les élèves.'
+            },
+            {
+              title: '2. Vente Directe & Dettes Élèves',
+              desc: 'Vendez des articles aux élèves avec règlement complet, acompte partiel ou dette intégrale. Le montant impayé est automatiquement reporté sur le dossier financier de l’élève.'
+            },
+            {
+              title: '3. Encaissement des Dettes & Reçus Dédiés',
+              desc: 'Recevez les règlements échelonnés des dettes avec génération automatique d’un reçu de vente certifié et traçabilité complète dans le profil de l’élève.'
+            }
+          ],
+          tips: [
+            'Toutes les rentrées financières de la boutique sont consolidées dans les revenus globaux de la section Finances.',
+            'L’impression des reçus de vente est parfaitement isolée sans éléments superflus de l’écran.'
+          ],
+          actionLink: '/products',
+          actionLabel: 'Gérer la Boutique'
+        },
+        {
           id: 'finance_receipts',
           category: 'finance',
           image: '/guide/qafgo_guide_finance.jpg',
@@ -235,13 +269,13 @@ export default function HelpPage() {
               desc: 'Chaque paiement génère un reçu officiel avec numéro de série unique, montant en chiffres et lettres, tampon et signature de l’école.'
             },
             {
-              title: '3. Suivi des Retards & Dépenses',
-              desc: 'Visualisez d’un coup d’œil les élèves en retard de paiement. Enregistrez également les charges courantes de l’établissement (loyer, fournitures, émoluments).'
+              title: '3. Revenus Consolidés & Ventes Boutique',
+              desc: 'Le tableau de bord financier consolide les cotisations d’inscription et les recettes de vente des produits avec un onglet dédié "Ventes de Produits" pour un audit limpide.'
             }
           ],
           tips: [
             'Les élèves bénéficiant d’une exonération à 100% sont automatiquement indiqués comme régularisés.',
-            'L’impression thermique 80mm est optimisée pour les tickets de caisse rapides.'
+            'L’impression thermique 80mm et A4 est optimisée sans polluer le document avec l’interface applicative.'
           ],
           actionLink: '/finance',
           actionLabel: 'Accéder aux Finances'
@@ -387,6 +421,10 @@ export default function HelpPage() {
             {
               title: '3. Direct Fee Collection & Printing',
               desc: 'Record student monthly payments directly from the group table and print receipts immediately. Print attendance sign-in sheets in one click.'
+            },
+            {
+              title: '4. Preschool Badges & Session Requirement',
+              desc: 'Print official child-friendly ID badges for preschool groups (8 cards per A4 sheet with cut guides) with student photo and guardian emergency contacts. Note that creating an active session is required prior to opening the Scoring Sheet.'
             }
           ],
           tips: [
@@ -413,8 +451,8 @@ export default function HelpPage() {
               desc: 'Configure family discounts (e.g., 20% for 2nd sibling) or full 100% exemptions for orphans or special circumstances.'
             },
             {
-              title: '3. Lifetime Student Dossier',
-              desc: 'Every student has a permanent portfolio tracking year-over-year groups, Quranic milestones, badges, conduct remarks, and payment receipts.'
+              title: '3. Lifetime Dossier & Debts Ledger',
+              desc: 'Every student has a permanent portfolio tracking year-over-year groups, Quranic milestones, badges, conduct remarks, receipts, and an itemized store debt ledger.'
             }
           ],
           tips: [
@@ -481,6 +519,34 @@ export default function HelpPage() {
           actionLabel: 'View Timetable'
         },
         {
+          id: 'store_products',
+          category: 'store',
+          icon: ShoppingBag,
+          color: 'from-amber-500/20 to-rose-500/20 text-rose-600 dark:text-rose-400 border-rose-500/30',
+          title: 'Store, Products & Student Debt Management',
+          summary: 'Inventory control, product sales to students, debt tracking, installments, and unified revenue reporting.',
+          steps: [
+            {
+              title: '1. Inventory & Pricing Catalog',
+              desc: 'Add products, books, and school supplies with designation, available quantity, purchase price, and selling price.'
+            },
+            {
+              title: '2. Student Checkout & Debt Logging',
+              desc: 'Sell items directly to enrolled students. Choose between full upfront payment, down payment, or adding the remaining balance as student debt.'
+            },
+            {
+              title: '3. Debt Repayment & Official Receipts',
+              desc: 'Collect debt installments from the Store or student profile. Generate serialized printable sale receipts with clean print isolation.'
+            }
+          ],
+          tips: [
+            'All product revenue is unified with tuition fees in the main Finance dashboard.',
+            'A permanent debt ledger is accessible in each student profile.'
+          ],
+          actionLink: '/products',
+          actionLabel: 'Open Store'
+        },
+        {
           id: 'finance_receipts',
           category: 'finance',
           image: '/guide/qafgo_guide_finance.jpg',
@@ -499,13 +565,13 @@ export default function HelpPage() {
               desc: 'Generate branded receipts featuring serial numbers, spelled-out currency amounts, and school stamp.'
             },
             {
-              title: '3. Overdue Follow-up & Expense Ledger',
-              desc: 'Track uncollected tuition instantly. Log operational expenses (rent, utilities, teacher honorariums).'
+              title: '3. Consolidated Revenue & Product Sales Ledger',
+              desc: 'Track tuition dues, expenses, and store sales. The Finance dashboard merges tuition collections with product revenues into a unified revenue overview with a dedicated Product Sales tab.'
             }
           ],
           tips: [
             '100% exempted students automatically appear with a cleared scholarship badge.',
-            'Support for 80mm thermal receipts and A4/A5 voucher formats.'
+            'Support for 80mm thermal receipts and A4/A5 voucher formats with clean print isolation.'
           ],
           actionLink: '/finance',
           actionLabel: 'Open Finance'
@@ -651,6 +717,10 @@ export default function HelpPage() {
           {
             title: '3. استخلاص الاشتراكات وطباعة القوائم',
             desc: 'يمكنك تحصيل الرسوم الشهرية مباشرة من قائمة طلبة الفوج مع إمكانية طباعة وصل استلام فوري، أو طباعة ورقة النداء وإشهار القوائم الرسمية.'
+          },
+          {
+            title: '4. طباعة شارات البراعم وشرط إنشاء الحصة',
+            desc: 'لأفواج التعليم المبكر والتحضيري، يتيح النظام طباعة شارات تعريفية ملونة للأطفال بحجم قياسي مع خطوط قص (8 شارات بالورقة A4) تتضمن صورة الطفل وهاتف الطوارئ. كما يشترط النظام إنشاء وتأكيد الحصة أولاً قبل فتح شبكة التنقيط والتقييم (Scoring Sheet).'
           }
         ],
         tips: [
@@ -666,7 +736,7 @@ export default function HelpPage() {
         icon: Users,
         color: 'from-indigo-500/20 to-blue-500/20 text-indigo-600 dark:text-indigo-400 border-indigo-500/30',
         title: 'تسجيل الطلبة والملف الدائم مدى الحياة',
-        summary: 'إضافة طالب جديد، التحقق من التوافق، الإعفاءات وتخفيضات الأخوة، والملف التراكمي.',
+        summary: 'إضافة طالب جديد، التحقق من التوافق، الإعفاءات وتخفيضات الأخوة، وسجل الديون.',
         steps: [
           {
             title: '1. تسجيل طالب جديد',
@@ -677,8 +747,8 @@ export default function HelpPage() {
             desc: 'يمكن تحديد نسبة تخفيض للأخوة (مثلاً 20% للابن الثاني) أو تفعيل الإعفاء الكامل بنسبة 100% للأيتام وذوي الاحتياجات الخاصة، مما يعفيهم من الاشتراكات تلقائياً في السجلات المالية.'
           },
           {
-            title: '3. الملف الدائم مدى الحياة (Lifetime Dossier)',
-            desc: 'يمتلك كل طالب سجلاً تراكمياً محفوظاً عبر كل السنوات الدراسية، يشمل مسيرته التعليمية، تدرج حفظه للقرآن، الأوسمة والشهادات التقديرية، الملاحظات السلوكية، والأرشيف المالي الكامل.'
+            title: '3. الملف الدائم وسجل مشتريات وديون الطالب',
+            desc: 'يمتلك كل طالب سجلاً تراكمياً محفوظاً عبر كل السنوات الدراسية، يشمل مسيرته التعليمية، تدرج حفظه للقرآن، الأوسمة، الملاحظات السلوكية، الأرشيف المالي، وسجل ديون ومشتريات المنتجات المدرسية.'
           }
         ],
         tips: [
@@ -745,6 +815,34 @@ export default function HelpPage() {
         actionLabel: 'جدول التوقيت'
       },
       {
+        id: 'store_products',
+        category: 'store',
+        icon: ShoppingBag,
+        color: 'from-amber-500/20 to-rose-500/20 text-rose-600 dark:text-rose-400 border-rose-500/30',
+        title: 'المتجر، المنتجات، المبيعات والديون',
+        summary: 'إدارة مخزون الكتب والمستلزمات، البيع المباشر للطلبة، تقسيط الدفعات، ومتابعة الديون.',
+        steps: [
+          {
+            title: '1. إدارة مخزون المنتجات والأسعار',
+            desc: 'أدخل الكتب المدرسية، المصاحف الشريفة، واللوازم مع تحديد الكمية المتوفرة، سعر الشراء وسعر البيع للطلبة، مع التحديث الفوري للكميات المتوفرة.'
+          },
+          {
+            title: '2. بيع المنتجات وتسجيل الديون',
+            desc: 'يمكن بيع المنتجات للطلبة بمرونة تامة: سداد كلي، دفع جزء من المبلغ، أو تسجيل العملية كدين كامل على ذمة الطالب ليتم احتسابه وإدراجه تلقائياً في حسابه.'
+          },
+          {
+            title: '3. سداد الديون بالأقساط وإصدار الوصولات',
+            desc: 'يتيح النظام سداد ديون المنتجات على دفعات من شاشة المتجر أو مباشرة من ملف الطالب (Student Profile)، مع إصدار وصل بيع مالي معتمد برقم تسلسلي وطباعة معزولة.'
+          }
+        ],
+        tips: [
+          'يتم دمج مداخيل مبيعات المتجر تلقائياً مع الاشتراكات الدراسية في قسم المالية لتوفير رقم مداخيل موحد وشامل.',
+          'يمكن معاينة سجل الديون وتاريخ المعاملات لكل طالب بالكامل في ملفه التراكمي.'
+        ],
+        actionLink: '/products',
+        actionLabel: 'المتجر والمبيعات'
+      },
+      {
         id: 'finance_receipts',
         category: 'finance',
         image: '/guide/qafgo_guide_finance.jpg',
@@ -763,13 +861,13 @@ export default function HelpPage() {
             desc: 'يُولد النظام وصلاً مالياً معتمداً برقم تسلسلي فريد، متضمناً اسم الطالب، الفوج، المبلغ رقماً وكتابة، وشعار وختم المدرسة، مع دعم الطباعة الحرارية (80mm) ونماذج A4/A5.'
           },
           {
-            title: '3. متابعة المتأخرات والمصاريف التشغيلية',
-            desc: 'تتبع الطلبة المتأخرين عن السداد بفلتر سريع لإرسال التنبيهات. كما يمكنك تسجيل مصاريف المؤسسة (فواتير، صيانة، مكافآت المشايخ) لحساب صافي الإيرادات بدقة.'
+            title: '3. توحيد الإيرادات وتبويب مبيعات المتجر',
+            desc: 'تعرض لوحة المالية الإيرادات الكلية المجمعة (رسوم الأفواج + مبيعات المنتجات)، مع تبويب مستقل لمبيعات المتجر يوضح المدفوعات والديون والوصولات الصادرة.'
           }
         ],
         tips: [
           'الطلبة المعفون بنسبة 100% يظهرون تلقائياً كمسددين بشارة "إعفاء كلي".',
-          'يمكن إعادة طباعة أي وصل سابق من سجل المعاملات المالية في أي وقت.'
+          'طباعة الوصولات وشارات التلاميذ معزولة تماماً ولا تطبع عناصر واجهة التطبيق.'
         ],
         actionLink: '/finance',
         actionLabel: 'الإدارة المالية'
@@ -838,6 +936,7 @@ export default function HelpPage() {
     { id: 'start', label: lang === 'ar' ? 'البداية السريعة' : lang === 'fr' ? 'Démarrage' : 'Quick Start', icon: Sparkles },
     { id: 'academic', label: lang === 'ar' ? 'الأفواج والتعليم' : lang === 'fr' ? 'Pédagogie & Groupes' : 'Academic & Groups', icon: Layers },
     { id: 'students', label: lang === 'ar' ? 'الطلبة والتحويلات' : lang === 'fr' ? 'Élèves & Transferts' : 'Students & Transfers', icon: Users },
+    { id: 'store', label: lang === 'ar' ? 'المتجر والمبيعات' : lang === 'fr' ? 'Boutique & Ventes' : 'Store & Products', icon: ShoppingBag },
     { id: 'finance', label: lang === 'ar' ? 'المالية والوصولات' : lang === 'fr' ? 'Finances & Reçus' : 'Finance & Receipts', icon: Wallet },
     { id: 'system', label: lang === 'ar' ? 'النظام والإعدادات' : lang === 'fr' ? 'Système & Sécurité' : 'System & Settings', icon: Settings },
   ], [lang]);
@@ -958,14 +1057,16 @@ export default function HelpPage() {
           <p className="text-sm text-text-muted mt-1 max-w-md mx-auto">
             {lang === 'ar' 
               ? `لا توجد مقالات دليل تطابق "${searchQuery}". جرب البحث بكلمات أبسط أو تصفح الأقسام مباشرة.` 
-              : `No documentation matching "${searchQuery}". Try using simpler keywords or select all categories.`}
+              : lang === 'fr'
+              ? `Aucun article de documentation ne correspond à "${searchQuery}". Essayez avec d'autres mots-clés ou parcourez les rubriques.`
+              : `No documentation matching "${searchQuery}". Try using simpler keywords or browse categories directly.`}
           </p>
           <button
             type="button"
             onClick={() => { setSearchQuery(''); setActiveCategory('all'); }}
-            className="mt-4 px-4 py-2 rounded-xl bg-primary text-primary-contrast text-xs font-bold"
+            className="mt-4 px-4 py-2 rounded-xl bg-primary text-primary-contrast text-xs font-bold transition-transform hover:scale-[1.02] cursor-pointer"
           >
-            {lang === 'ar' ? 'عرض جميع المواضيع' : 'Show All Topics'}
+            {lang === 'ar' ? 'عرض جميع المواضيع' : lang === 'fr' ? 'Afficher toutes les rubriques' : 'Show All Topics'}
           </button>
         </div>
       ) : (

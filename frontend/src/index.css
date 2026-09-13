@@ -144,6 +144,12 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Print Styling */
 @media print {
+  /* When a receipt or printable modal is active, completely hide the application root */
+  body.has-print-modal #root,
+  body:has(.print-portal-container) #root {
+    display: none !important;
+  }
+
   .no-print,
   .no-print * {
     display: none !important;
@@ -158,9 +164,46 @@ h1, h2, h3, h4, h5, h6 {
     print-color-adjust: exact !important;
   }
 
+  /* Portal container for receipts / modals */
+  .print-portal-container {
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    overflow: visible !important;
+  }
+
+  .print-receipt-card {
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
   @page {
     size: A4 portrait;
-    margin: 10mm 10mm 10mm 10mm;
+    margin: 8mm 8mm 8mm 8mm;
+  }
+
+  body.print-landscape-mode {
+    /* Set page landscape when print-landscape-mode is active */
+  }
+
+  @page landscape-page {
+    size: A4 landscape;
+    margin: 8mm 8mm 8mm 8mm;
+  }
+
+  .print-landscape {
+    page: landscape-page;
   }
 
   .print-avoid-break {

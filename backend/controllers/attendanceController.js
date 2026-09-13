@@ -8,6 +8,45 @@ export const getGroupAttendanceByDate = async (req, res) => {
 
     const selectedDate = date || new Date().toISOString().split('T')[0];
 
+    // 1. Fetch group basic schedule info
+    const [groupRows] = await pool.query(`
+      SELECT g.id, g.name, g.schedule, g.room, g.teacher_id, t.full_name AS teacher_name
+      FROM groups g
+      LEFT JOIN teachers t ON g.teacher_id = t.id
+      WHERE g.id = ?
+    `, [groupId]);
+
+    if (groupRows.length === 0) {
+      return res.status(404).json({ success: false, message: req.t('group_not_found') });
+    }
+
+    const group = groupRows[0];
+
+    // 2. Fetch timetable sessions for scheduled days
+    const [timetableRows] = await pool.query(`
+      SELECT DISTINCT day_of_week, start_time, end_time
+      FROM timetable_sessions
+      WHERE group_id = ?
+    `, [groupId]);
+
+    const scheduledDays = timetableRows.map(r => r.day_of_week);
+    const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+    const dateObj = new Date(`${selectedDate}T00:00:00`);
+    const selectedDayOfWeek = dayNames[dateObj.getDay()];
+    const isScheduledDay = scheduledDays.includes(selectedDayOfWeek);
+
+    // 3. Fetch all distinct recorded session dates for this group (sorted newest first)
+    const [recordedDateRows] = await pool.query(`
+      SELECT DISTINCT DATE_FORMAT(a.date, '%Y-%m-%d') AS date
+      FROM attendance a
+      JOIN enrollments e ON a.enrollment_id = e.id
+      WHERE e.group_id = ?
+      ORDER BY a.date DESC
+    `, [groupId]);
+
+    const recordedDates = recordedDateRows.map(r => r.date);
+
+    // 4. Fetch students and attendance status for the selected date
     const [rows] = await pool.query(`
       SELECT 
         e.id AS enrollment_id,
@@ -15,7 +54,7 @@ export const getGroupAttendanceByDate = async (req, res) => {
         s.full_name AS student_name,
         s.reg_no,
         a.id AS attendance_id,
-        COALESCE(a.status, 'PRESENT') AS status,
+        a.status,
         a.notes
       FROM enrollments e
       JOIN students s ON e.student_id = s.id
@@ -24,9 +63,298 @@ export const getGroupAttendanceByDate = async (req, res) => {
       ORDER BY s.full_name ASC
     `, [selectedDate, groupId]);
 
-    return res.json({ success: true, date: selectedDate, data: rows });
+    // Has attendance been officially recorded for this group & date?
+    const hasRecord = rows.some(r => r.attendance_id !== null);
+
+    // Prepare processed student data
+    const studentData = rows.map(r => ({
+      enrollment_id: r.enrollment_id,
+      student_id: r.student_id,
+      student_name: r.student_name,
+      reg_no: r.reg_no,
+      attendance_id: r.attendance_id,
+      status: r.status || 'PRESENT',
+      is_recorded: r.attendance_id !== null,
+      notes: r.notes || ''
+    }));
+
+    return res.json({ 
+      success: true, 
+      date: selectedDate, 
+      hasRecord,
+      recordedDates,
+      schedule: group.schedule,
+      scheduledDays,
+      selectedDayOfWeek,
+      isScheduledDay,
+      timetableSessions: timetableRows,
+      data: studentData 
+    });
   } catch (error) {
     console.error('getGroupAttendanceByDate error:', error);
+    return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
+  }
+};
+
+export const getGroupMonthlyAttendance = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const { month, date_from, date_to, cycle_number } = req.query;
+
+    // 1. Fetch group details & teacher
+    const [groupRows] = await pool.query(`
+      SELECT 
+        g.id, g.name, g.track_type, g.subject_name, g.room, g.schedule,
+        g.month_calculation_type, g.package_quota, g.monthly_fee, g.is_free,
+        t.full_name AS teacher_name, t.phone AS teacher_phone,
+        ay.label AS academic_year_label
+      FROM groups g
+      LEFT JOIN teachers t ON g.teacher_id = t.id
+      LEFT JOIN academic_years ay ON g.academic_year_id = ay.id
+      WHERE g.id = ?
+    `, [groupId]);
+
+    if (groupRows.length === 0) {
+      return res.status(404).json({ success: false, message: req.t('group_not_found') });
+    }
+
+    const group = groupRows[0];
+    const isPerSession = group.month_calculation_type === 'PER_SESSION';
+    const isPerHour = group.month_calculation_type === 'PER_HOUR';
+    const isQuotaBased = isPerSession || isPerHour;
+
+    // 2. Fetch all distinct recorded attendance dates for this group (across all time)
+    const [allRecordedDatesRows] = await pool.query(`
+      SELECT DISTINCT DATE_FORMAT(a.date, '%Y-%m-%d') AS date
+      FROM attendance a
+      JOIN enrollments e ON a.enrollment_id = e.id
+      WHERE e.group_id = ?
+      ORDER BY a.date ASC
+    `, [groupId]);
+
+    const allGroupDates = allRecordedDatesRows.map(r => r.date);
+
+    // 3. If hourly package, fetch timetable sessions for duration estimation
+    let timetableRows = [];
+    if (isPerHour) {
+      const [tt] = await pool.query(`
+        SELECT day_of_week, start_time, end_time,
+               TIMESTAMPDIFF(MINUTE, start_time, end_time) / 60.0 AS duration_hours
+        FROM timetable_sessions
+        WHERE group_id = ?
+      `, [groupId]);
+      timetableRows = tt;
+    }
+
+    // 4. Partition allGroupDates into logical quota cycles
+    const cycles = [];
+    if (isPerSession) {
+      const quota = group.package_quota > 0 ? parseInt(group.package_quota, 10) : 8;
+      if (allGroupDates.length === 0) {
+        cycles.push({
+          cycleNumber: 1,
+          cycleIndex: 0,
+          startDate: null,
+          endDate: null,
+          sessionsCount: 0,
+          quota,
+          isCompleted: false,
+          sessionDates: []
+        });
+      } else {
+        for (let i = 0; i < allGroupDates.length; i += quota) {
+          const chunk = allGroupDates.slice(i, i + quota);
+          const cycleNum = Math.floor(i / quota) + 1;
+          const isCompleted = chunk.length === quota;
+          cycles.push({
+            cycleNumber: cycleNum,
+            cycleIndex: cycles.length,
+            startDate: chunk[0],
+            endDate: chunk[chunk.length - 1],
+            sessionsCount: chunk.length,
+            quota,
+            isCompleted,
+            sessionDates: chunk
+          });
+        }
+      }
+    } else if (isPerHour) {
+      const quota = group.package_quota > 0 ? parseFloat(group.package_quota) : 12.0;
+      const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+      
+      if (allGroupDates.length === 0) {
+        cycles.push({
+          cycleNumber: 1,
+          cycleIndex: 0,
+          startDate: null,
+          endDate: null,
+          sessionsCount: 0,
+          totalHours: 0,
+          quota,
+          isCompleted: false,
+          sessionDates: []
+        });
+      } else {
+        let currentCycle = {
+          cycleNumber: 1,
+          cycleIndex: 0,
+          startDate: null,
+          endDate: null,
+          sessionsCount: 0,
+          totalHours: 0,
+          quota,
+          isCompleted: false,
+          sessionDates: []
+        };
+
+        for (const d of allGroupDates) {
+          const dateObj = new Date(d);
+          const dayName = dayNames[dateObj.getDay()];
+          const tt = timetableRows.find(r => r.day_of_week === dayName);
+          const duration = tt && parseFloat(tt.duration_hours) > 0 ? parseFloat(tt.duration_hours) : 2.0;
+
+          if (currentCycle.sessionsCount === 0) {
+            currentCycle.startDate = d;
+          }
+          currentCycle.endDate = d;
+          currentCycle.sessionsCount += 1;
+          currentCycle.totalHours = parseFloat((currentCycle.totalHours + duration).toFixed(1));
+          currentCycle.sessionDates.push(d);
+
+          if (currentCycle.totalHours >= quota) {
+            currentCycle.isCompleted = true;
+            cycles.push(currentCycle);
+            currentCycle = {
+              cycleNumber: cycles.length + 1,
+              cycleIndex: cycles.length,
+              startDate: null,
+              endDate: null,
+              sessionsCount: 0,
+              totalHours: 0,
+              quota,
+              isCompleted: false,
+              sessionDates: []
+            };
+          }
+        }
+        if (currentCycle.sessionsCount > 0 || cycles.length === 0) {
+          cycles.push(currentCycle);
+        }
+      }
+    }
+
+    // 5. Determine startDate and endDate based on requested scope
+    let startDate;
+    let endDate;
+    let currentMonth = month || new Date().toISOString().slice(0, 7);
+    let selectedCycle = null;
+
+    if (date_from && date_to) {
+      startDate = date_from;
+      endDate = date_to;
+      currentMonth = `${date_from} ~ ${date_to}`;
+      selectedCycle = cycles.find(c => c.startDate === date_from && c.endDate === date_to) || null;
+    } else if (cycle_number !== undefined && cycle_number !== null && cycle_number !== '') {
+      const num = parseInt(cycle_number, 10);
+      selectedCycle = cycles.find(c => c.cycleNumber === num) || cycles[cycles.length - 1] || null;
+      if (selectedCycle && selectedCycle.startDate && selectedCycle.endDate) {
+        startDate = selectedCycle.startDate;
+        endDate = selectedCycle.endDate;
+      } else {
+        startDate = `${currentMonth}-01`;
+        endDate = `${currentMonth}-28`;
+      }
+    } else if (isQuotaBased && cycles.length > 0) {
+      // Default to the latest active/completed cycle for quota-based groups!
+      selectedCycle = cycles[cycles.length - 1];
+      if (selectedCycle && selectedCycle.startDate && selectedCycle.endDate) {
+        startDate = selectedCycle.startDate;
+        endDate = selectedCycle.endDate;
+      } else {
+        startDate = `${currentMonth}-01`;
+        const [yearStr, monthStr] = currentMonth.split('-');
+        const year = parseInt(yearStr, 10);
+        const m = parseInt(monthStr, 10);
+        const lastDay = new Date(year, m, 0).getDate();
+        endDate = `${currentMonth}-${String(lastDay).padStart(2, '0')}`;
+      }
+    } else {
+      // Standard CALENDAR_MONTH
+      startDate = `${currentMonth}-01`;
+      const [yearStr, monthStr] = currentMonth.split('-');
+      const year = parseInt(yearStr, 10);
+      const m = parseInt(monthStr, 10);
+      const lastDay = new Date(year, m, 0).getDate();
+      endDate = `${currentMonth}-${String(lastDay).padStart(2, '0')}`;
+    }
+
+    // 6. Fetch active students enrolled in this group
+    const [students] = await pool.query(`
+      SELECT 
+        e.id AS enrollment_id,
+        s.id AS student_id,
+        s.full_name AS student_name,
+        s.reg_no,
+        s.gender,
+        e.status AS enrollment_status
+      FROM enrollments e
+      JOIN students s ON e.student_id = s.id
+      WHERE e.group_id = ? AND e.status = 'ACTIVE'
+      ORDER BY s.full_name ASC
+    `, [groupId]);
+
+    // 7. Fetch all attendance records for these enrollments in this range
+    let attendanceRows = [];
+    let teacherAttRows = [];
+    let recordedDates = [];
+
+    if (startDate && endDate) {
+      const [att] = await pool.query(`
+        SELECT 
+          a.id,
+          a.enrollment_id,
+          DATE_FORMAT(a.date, '%Y-%m-%d') AS date,
+          a.status,
+          a.notes
+        FROM attendance a
+        JOIN enrollments e ON a.enrollment_id = e.id
+        WHERE e.group_id = ? AND a.date BETWEEN ? AND ?
+        ORDER BY a.date ASC
+      `, [groupId, startDate, endDate]);
+      attendanceRows = att;
+
+      recordedDates = [...new Set(attendanceRows.map(r => r.date))].sort();
+
+      const [teacherAtt] = await pool.query(`
+        SELECT 
+          DATE_FORMAT(ta.date, '%Y-%m-%d') AS date,
+          ta.status,
+          ta.substitute_teacher_id,
+          ta.notes,
+          st.full_name AS substitute_teacher_name
+        FROM teacher_attendance ta
+        LEFT JOIN teachers st ON ta.substitute_teacher_id = st.id
+        WHERE ta.group_id = ? AND ta.date BETWEEN ? AND ?
+        ORDER BY ta.date ASC
+      `, [groupId, startDate, endDate]);
+      teacherAttRows = teacherAtt;
+    }
+
+    return res.json({
+      success: true,
+      month: currentMonth,
+      startDate,
+      endDate,
+      group,
+      cycles,
+      selectedCycle,
+      recordedDates,
+      students,
+      attendance: attendanceRows,
+      teacherAttendance: teacherAttRows
+    });
+  } catch (error) {
+    console.error('getGroupMonthlyAttendance error:', error);
     return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
   }
 };
@@ -348,3 +676,232 @@ export const saveTeacherSubstitutionRange = async (req, res) => {
     return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
   }
 };
+
+// ==================== GROUP SESSIONS HISTORY & LIFECYCLE ====================
+
+// 1. Get full list of recorded sessions for a group with statistics
+export const getGroupSessionsList = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+
+    // Fetch group schedule & timetable
+    const [groupRows] = await pool.query(`
+      SELECT g.id, g.name, g.schedule, g.room, g.teacher_id, t.full_name AS teacher_name
+      FROM groups g
+      LEFT JOIN teachers t ON g.teacher_id = t.id
+      WHERE g.id = ?
+    `, [groupId]);
+
+    if (groupRows.length === 0) {
+      return res.status(404).json({ success: false, message: req.t('group_not_found') });
+    }
+    const group = groupRows[0];
+
+    const [timetableRows] = await pool.query(`
+      SELECT DISTINCT day_of_week, start_time, end_time
+      FROM timetable_sessions
+      WHERE group_id = ?
+    `, [groupId]);
+    const scheduledDays = timetableRows.map(r => r.day_of_week);
+    const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+
+    // Fetch distinct recorded dates and summary counts from attendance
+    const [sessionRows] = await pool.query(`
+      SELECT 
+        DATE_FORMAT(a.date, '%Y-%m-%d') AS date,
+        COUNT(a.id) AS total_students,
+        SUM(CASE WHEN a.status = 'PRESENT' THEN 1 ELSE 0 END) AS present_count,
+        SUM(CASE WHEN a.status = 'LATE' THEN 1 ELSE 0 END) AS late_count,
+        SUM(CASE WHEN a.status = 'EXCUSED' THEN 1 ELSE 0 END) AS excused_count,
+        SUM(CASE WHEN a.status IN ('ABSENT', 'UNEXCUSED') THEN 1 ELSE 0 END) AS absent_count,
+        ta.id AS teacher_attendance_id,
+        ta.status AS teacher_status,
+        ta.notes AS teacher_notes,
+        ta.substitute_teacher_id,
+        st.full_name AS substitute_teacher_name
+      FROM attendance a
+      JOIN enrollments e ON a.enrollment_id = e.id
+      LEFT JOIN teacher_attendance ta ON ta.group_id = e.group_id AND ta.date = a.date
+      LEFT JOIN teachers st ON ta.substitute_teacher_id = st.id
+      WHERE e.group_id = ?
+      GROUP BY a.date, ta.id, ta.status, ta.notes, ta.substitute_teacher_id, st.full_name
+      ORDER BY a.date ASC
+    `, [groupId]);
+
+    // Format and assign chronological session numbers (ascending)
+    const totalSessions = sessionRows.length;
+    const formattedSessions = sessionRows.map((s, index) => {
+      const dateObj = new Date(`${s.date}T00:00:00`);
+      const dayOfWeek = dayNames[dateObj.getDay()];
+      const isScheduledDay = scheduledDays.includes(dayOfWeek);
+      const total = parseInt(s.total_students, 10) || 0;
+      const present = parseInt(s.present_count, 10) || 0;
+      const late = parseInt(s.late_count, 10) || 0;
+      const excused = parseInt(s.excused_count, 10) || 0;
+      const absent = parseInt(s.absent_count, 10) || 0;
+      const effectiveAttended = present + late;
+      const attendanceRate = total > 0 ? Math.round((effectiveAttended / total) * 100) : 0;
+
+      return {
+        session_number: index + 1,
+        date: s.date,
+        day_of_week: dayOfWeek,
+        is_scheduled_day: isScheduledDay,
+        total_students: total,
+        present_count: present,
+        late_count: late,
+        excused_count: excused,
+        absent_count: absent,
+        attendance_rate: attendanceRate,
+        teacher: {
+          id: group.teacher_id,
+          name: group.teacher_name,
+          status: s.teacher_status || 'PRESENT',
+          notes: s.teacher_notes || '',
+          substitute_id: s.substitute_teacher_id || null,
+          substitute_name: s.substitute_teacher_name || null
+        }
+      };
+    });
+
+    // Display list newest first for user convenience
+    const sessionsNewestFirst = [...formattedSessions].reverse();
+
+    return res.json({
+      success: true,
+      data: sessionsNewestFirst,
+      totalSessions,
+      group: {
+        id: group.id,
+        name: group.name,
+        schedule: group.schedule,
+        scheduledDays,
+        teacher_name: group.teacher_name
+      }
+    });
+  } catch (error) {
+    console.error('getGroupSessionsList error:', error);
+    return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
+  }
+};
+
+// 2. Update date of an existing session
+export const updateSessionDate = async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const { groupId } = req.params;
+    const { oldDate, newDate } = req.body;
+
+    if (!oldDate || !newDate) {
+      return res.status(400).json({ success: false, message: req.t('bad_request') });
+    }
+
+    if (oldDate === newDate) {
+      return res.json({ success: true, message: req.t('session_date_updated_success') });
+    }
+
+    await connection.beginTransaction();
+
+    // Check if newDate already has attendance recorded for this group
+    const [existing] = await connection.query(`
+      SELECT 1 FROM attendance a
+      JOIN enrollments e ON a.enrollment_id = e.id
+      WHERE e.group_id = ? AND a.date = ?
+      LIMIT 1
+    `, [groupId, newDate]);
+
+    if (existing.length > 0) {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        message: req.t('session_date_conflict_error', 'توجد حصة مسجلة بالفعل في هذا التاريخ الجديد')
+      });
+    }
+
+    // Update attendance table
+    await connection.query(`
+      UPDATE attendance
+      SET date = ?
+      WHERE date = ? AND enrollment_id IN (
+        SELECT id FROM enrollments WHERE group_id = ?
+      )
+    `, [newDate, oldDate, groupId]);
+
+    // Update teacher_attendance table
+    await connection.query(`
+      UPDATE teacher_attendance
+      SET date = ?
+      WHERE group_id = ? AND date = ?
+    `, [newDate, groupId, oldDate]);
+
+    await connection.commit();
+
+    logActivity(req, {
+      action_type: 'UPDATE',
+      data_type: 'ATTENDANCE',
+      details: `تعديل تاريخ حصة الفوج ${groupId} من ${oldDate} إلى ${newDate}`
+    });
+
+    return res.json({
+      success: true,
+      message: req.t('session_date_updated_success', 'تم تحديث تاريخ الحصة بنجاح'),
+      oldDate,
+      newDate
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error('updateSessionDate error:', error);
+    return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
+  } finally {
+    connection.release();
+  }
+};
+
+// 3. Cancel / Delete session attendance for a specific date
+export const deleteSessionAttendance = async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const { groupId } = req.params;
+    const { date } = req.body;
+
+    if (!date) {
+      return res.status(400).json({ success: false, message: req.t('bad_request') });
+    }
+
+    await connection.beginTransaction();
+
+    // Delete student attendance rows
+    const [attResult] = await connection.query(`
+      DELETE a FROM attendance a
+      JOIN enrollments e ON a.enrollment_id = e.id
+      WHERE e.group_id = ? AND a.date = ?
+    `, [groupId, date]);
+
+    // Delete teacher attendance
+    await connection.query(`
+      DELETE FROM teacher_attendance
+      WHERE group_id = ? AND date = ?
+    `, [groupId, date]);
+
+    await connection.commit();
+
+    logActivity(req, {
+      action_type: 'DELETE',
+      data_type: 'ATTENDANCE',
+      details: `إلغاء وحذف حصة الفوج ${groupId} وتفريغ الحضور لتاريخ ${date} (${attResult.affectedRows} سجل)`
+    });
+
+    return res.json({
+      success: true,
+      message: req.t('session_cancelled_success', 'تم حذف الحصة وإلغاء تسجيل حضورها بنجاح'),
+      deletedCount: attResult.affectedRows
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error('deleteSessionAttendance error:', error);
+    return res.status(500).json({ success: false, message: req.t('unhandled_server_error') });
+  } finally {
+    connection.release();
+  }
+};
+

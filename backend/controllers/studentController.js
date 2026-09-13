@@ -114,12 +114,27 @@ export const getStudents = async (req, res) => {
       [currentMonthRef]
     );
 
+    // Fetch product sales remaining debt for all students
+    const [productDebts] = await pool.query(`
+      SELECT student_id, SUM(remaining_debt) AS total_product_debt, COUNT(*) AS unpaid_sales_count
+      FROM product_sales
+      WHERE remaining_debt > 0
+      GROUP BY student_id
+    `);
+    const productDebtMap = new Map();
+    productDebts.forEach(pd => {
+      productDebtMap.set(pd.student_id, {
+        debt: parseFloat(pd.total_product_debt || 0),
+        count: parseInt(pd.unpaid_sales_count || 0, 10)
+      });
+    });
+
     // Compute financial / debt status for each student
     const resultList = [];
     for (const student of studentsMap.values()) {
       const activeEnrollments = student.enrollments.filter(e => e.status === 'ACTIVE');
       let hasUnpaid = false;
-      let unpaidAmount = 0;
+      let tuitionUnpaidAmount = 0;
       const unpaidGroups = [];
 
       if (activeEnrollments.length === 0) {
@@ -143,7 +158,7 @@ export const getStudents = async (req, res) => {
                 }
                 if (fee > 0) {
                   hasUnpaid = true;
-                  unpaidAmount += fee;
+                  tuitionUnpaidAmount += fee;
                   unpaidGroups.push(en.group_name);
                 }
               }
@@ -159,15 +174,27 @@ export const getStudents = async (req, res) => {
         }
       }
 
-      student.has_unpaid = hasUnpaid;
-      student.unpaid_amount = unpaidAmount;
+      // Merge product sales debt
+      const prodDebtInfo = productDebtMap.get(student.id) || { debt: 0, count: 0 };
+      const productDebt = prodDebtInfo.debt;
+      const totalUnpaidAmount = tuitionUnpaidAmount + productDebt;
+
+      if (productDebt > 0) {
+        hasUnpaid = true;
+        student.financial_status = 'UNPAID';
+      }
+
+      student.tuition_debt = tuitionUnpaidAmount;
+      student.product_debt = productDebt;
+      student.has_unpaid = totalUnpaidAmount > 0;
+      student.unpaid_amount = totalUnpaidAmount;
       student.unpaid_groups = unpaidGroups;
       student.unpaid_month = currentMonthRef;
 
       // Filter by financial status if requested in query
       if (req.query.financial_status) {
-        if (req.query.financial_status === 'UNPAID' && !hasUnpaid) continue;
-        if (req.query.financial_status === 'PAID' && (hasUnpaid || student.financial_status === 'NOT_ENROLLED')) continue;
+        if (req.query.financial_status === 'UNPAID' && !student.has_unpaid) continue;
+        if (req.query.financial_status === 'PAID' && (student.has_unpaid || student.financial_status === 'NOT_ENROLLED')) continue;
       }
 
       resultList.push(student);
@@ -639,9 +666,35 @@ export const getStudentLifetimeDossier = async (req, res) => {
       }
     });
 
+    // 7.1 Product Purchases and Debts
+    const [productSales] = await pool.query(`
+      SELECT 
+        ps.*,
+        p.designation AS product_name,
+        p.prix_achat AS product_cost,
+        s.full_name AS student_name,
+        s.reg_no AS student_reg_no,
+        s.reg_no
+      FROM product_sales ps
+      JOIN products p ON ps.product_id = p.id
+      JOIN students s ON ps.student_id = s.id
+      WHERE ps.student_id = ?
+      ORDER BY ps.sale_date DESC, ps.id DESC
+    `, [id]);
+
+    let totalProductPurchasesAmount = 0;
+    let totalProductPaid = 0;
+    let productDebt = 0;
+
+    productSales.forEach(ps => {
+      totalProductPurchasesAmount += parseFloat(ps.total_amount || 0);
+      totalProductPaid += parseFloat(ps.paid_amount || 0);
+      productDebt += parseFloat(ps.remaining_debt || 0);
+    });
+
     // Calculate current month's unpaid dues for active enrollments
     const currentMonthRef = new Date().toISOString().slice(0, 7);
-    let currentDebt = 0;
+    let tuitionDebt = 0;
     const unpaidEnrollments = [];
 
     for (const en of enrollments) {
@@ -657,7 +710,7 @@ export const getStudentLifetimeDossier = async (req, res) => {
             fee = Math.max(0, fee - parseFloat(en.discount_value || 0));
           }
           if (fee > 0) {
-            currentDebt += fee;
+            tuitionDebt += fee;
             unpaidEnrollments.push({
               group_id: en.group_id,
               group_name: en.group_name,
@@ -669,8 +722,10 @@ export const getStudentLifetimeDossier = async (req, res) => {
       }
     }
 
+    const currentTotalDebt = tuitionDebt + productDebt;
+
     // 8. Build Unified Multi-Year Timeline Events
-    // Combine enrollments, transfers, evaluations, awards into a unified timeline array sorted chronologically
+    // Combine enrollments, transfers, evaluations, awards, product purchases into a unified timeline array sorted chronologically
     const timeline = [];
 
     enrollments.forEach(en => {
@@ -787,6 +842,24 @@ export const getStudentLifetimeDossier = async (req, res) => {
       return (typePriority[b.type] || 0) - (typePriority[a.type] || 0);
     });
 
+    // Product Purchases Timeline Events
+    productSales.forEach(ps => {
+      const isPaid = ps.status === 'PAID';
+      const isPartial = ps.status === 'PARTIAL';
+      timeline.push({
+        id: `sale-${ps.id}`,
+        type: 'PRODUCT_PURCHASE',
+        date: ps.sale_date,
+        year: ps.academic_year_label || '',
+        title: `شراء منتج: ${ps.product_name} (${ps.quantity} قطعة)`,
+        subtitle: `المبلغ: ${parseFloat(ps.total_amount).toLocaleString()} دج | المدفوع: ${parseFloat(ps.paid_amount).toLocaleString()} دج | المتبقي: ${parseFloat(ps.remaining_debt).toLocaleString()} دج`,
+        status: ps.status,
+        badgeColor: isPaid ? 'emerald' : isPartial ? 'amber' : 'rose',
+        details: `وصل رقم: ${ps.receipt_no} ${ps.notes ? `| ${ps.notes}` : ''}`,
+        saleData: ps
+      });
+    });
+
     return res.json({
       success: true,
       data: {
@@ -799,9 +872,15 @@ export const getStudentLifetimeDossier = async (req, res) => {
           totalTutoringExams: tutoringGrades.length,
           totalPreschoolEvaluations: preschoolLogs.length,
           totalPaid,
+          totalProductPurchasesAmount,
+          totalProductPaid,
+          overallTotalPaid: totalPaid + totalProductPaid,
           totalExemptedVouchers,
-          currentDebt,
-          unpaidEnrollments
+          tuitionDebt,
+          productDebt,
+          currentDebt: currentTotalDebt,
+          unpaidEnrollments,
+          unpaidProductSales: productSales.filter(ps => parseFloat(ps.remaining_debt || 0) > 0)
         },
         enrollments,
         transfers,
@@ -810,6 +889,7 @@ export const getStudentLifetimeDossier = async (req, res) => {
         tutoringGrades,
         yearlyAttendanceRates,
         payments,
+        productSales,
         timeline
       }
     });
@@ -883,6 +963,20 @@ export const recalculateAllDebts = async (req, res) => {
         }
       }
     }
+
+    // Also include product sales debt in recalculateAllDebts
+    const [productDebts] = await pool.query(`
+      SELECT student_id, SUM(remaining_debt) AS total_debt
+      FROM product_sales
+      WHERE remaining_debt > 0
+      GROUP BY student_id
+    `);
+    productDebts.forEach(pd => {
+      const prevDebt = studentDebtMap.get(pd.student_id) || 0;
+      const pDebt = parseFloat(pd.total_debt || 0);
+      studentDebtMap.set(pd.student_id, prevDebt + pDebt);
+      totalDebtAmount += pDebt;
+    });
 
     totalStudentsWithDebt = studentDebtMap.size;
 

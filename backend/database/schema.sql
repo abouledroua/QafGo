@@ -339,3 +339,63 @@ CREATE TABLE IF NOT EXISTS `devices` (
   INDEX (`fingerprint`),
   CONSTRAINT `fk_devices_user` FOREIGN KEY (`created_by_user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 18. Products (إدارة المنتجات والمبيعات المدرسية)
+CREATE TABLE IF NOT EXISTS `products` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `designation` VARCHAR(150) NOT NULL,
+  `qte` INT NOT NULL DEFAULT 0,
+  `prix_achat` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  `prix_vente` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX (`designation`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 19. Product Sales (مبيعات المنتجات للطلبة والديون)
+CREATE TABLE IF NOT EXISTS `product_sales` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `academic_year_id` INT NULL,
+  `student_id` INT NOT NULL,
+  `product_id` INT NOT NULL,
+  `quantity` INT NOT NULL DEFAULT 1,
+  `unit_price` DECIMAL(10,2) NOT NULL,
+  `total_amount` DECIMAL(10,2) NOT NULL,
+  `paid_amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  `remaining_debt` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  `sale_date` DATE NOT NULL,
+  `receipt_no` VARCHAR(50) UNIQUE NOT NULL,
+  `status` ENUM('PAID', 'PARTIAL', 'UNPAID') NOT NULL DEFAULT 'UNPAID',
+  `notes` TEXT NULL,
+  `user_id` INT NULL,
+  `device_id` INT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX (`student_id`),
+  INDEX (`product_id`),
+  INDEX (`status`),
+  INDEX (`sale_date`),
+  INDEX (`remaining_debt`),
+  FOREIGN KEY (`student_id`) REFERENCES `students`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`product_id`) REFERENCES `products`(`id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_sale_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_sale_device` FOREIGN KEY (`device_id`) REFERENCES `devices`(`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 20. Product Sale Payments (دفعات تسديد ديون مبيعات المنتجات)
+CREATE TABLE IF NOT EXISTS `product_sale_payments` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `sale_id` INT NOT NULL,
+  `amount` DECIMAL(10,2) NOT NULL,
+  `payment_date` DATE NOT NULL,
+  `receipt_no` VARCHAR(50) UNIQUE NOT NULL,
+  `notes` TEXT NULL,
+  `user_id` INT NULL,
+  `device_id` INT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX (`sale_id`),
+  INDEX (`payment_date`),
+  FOREIGN KEY (`sale_id`) REFERENCES `product_sales`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_salepay_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_salepay_device` FOREIGN KEY (`device_id`) REFERENCES `devices`(`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

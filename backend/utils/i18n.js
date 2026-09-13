@@ -79,6 +79,7 @@ export const translations = {
     expense_recorded_success: 'تم تسجيل سند الصرف بنجاح',
     payment_amount_invalid: 'المبلغ المدفوع غير صالح',
     duplicate_receipt_error: 'يوجد وصل مسجل مسبقاً لهذا الشهر برقم: {receipt_no}',
+    duplicate_receipt_multi_error: 'الأشهر التالية مسددة أو معفاة مسبقاً: {months}',
 
     // Academic Years
     academic_year_created_success: 'تم إنشاء الموسم الدراسي بنجاح',
@@ -168,6 +169,7 @@ export const translations = {
     expense_recorded_success: 'Expense voucher recorded successfully',
     payment_amount_invalid: 'Invalid payment amount',
     duplicate_receipt_error: 'A receipt is already recorded for this month with number: {receipt_no}',
+    duplicate_receipt_multi_error: 'The following months are already settled or exempted: {months}',
 
     // Academic Years
     academic_year_created_success: 'Academic year created successfully',
@@ -257,6 +259,7 @@ export const translations = {
     expense_recorded_success: 'Bon de dépense enregistré avec succès',
     payment_amount_invalid: 'Montant de paiement invalide',
     duplicate_receipt_error: 'Un reçu est déjà enregistré pour ce mois sous le numéro: {receipt_no}',
+    duplicate_receipt_multi_error: 'Les mois suivants sont déjà réglés ou exonérés : {months}',
 
     // Academic Years
     academic_year_created_success: 'Année scolaire créée avec succès',

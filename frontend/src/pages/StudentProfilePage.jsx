@@ -28,10 +28,15 @@ import {
   Camera,
   Image,
   X,
-  AlertTriangle
+  AlertTriangle,
+  ShoppingBag,
+  ArrowDownCircle,
+  CreditCard,
+  Plus
 } from 'lucide-react';
 import TransferModal from '../components/TransferModal';
 import ReceiptModal from '../components/ReceiptModal';
+import SaleReceiptModal from '../components/SaleReceiptModal';
 import { DateTimeFormatter } from '../utils/dateTimeFormatter';
 
 export default function StudentProfilePage() {
@@ -82,6 +87,34 @@ export default function StudentProfilePage() {
   // Delete Student State
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deletingStudent, setDeletingStudent] = useState(false);
+
+  // Sell Product to Student State
+  const [sellProductModalOpen, setSellProductModalOpen] = useState(false);
+  const [productsList, setProductsList] = useState([]);
+  const [sellProductFormData, setSellProductFormData] = useState({
+    product_id: '',
+    quantity: 1,
+    unit_price: '',
+    paid_amount: '',
+    sale_date: new Date().toISOString().split('T')[0],
+    notes: ''
+  });
+  const [sellingProduct, setSellingProduct] = useState(false);
+
+  // Pay Product Debt State
+  const [payDebtModalOpen, setPayDebtModalOpen] = useState(false);
+  const [selectedSaleForPayment, setSelectedSaleForPayment] = useState(null);
+  const [payDebtFormData, setPayDebtFormData] = useState({
+    amount: '',
+    payment_date: new Date().toISOString().split('T')[0],
+    notes: ''
+  });
+  const [payingDebt, setPayingDebt] = useState(false);
+
+  // Sale Receipt Modal State
+  const [saleReceiptModalOpen, setSaleReceiptModalOpen] = useState(false);
+  const [selectedSaleForReceipt, setSelectedSaleForReceipt] = useState(null);
+  const [selectedPaymentInstallment, setSelectedPaymentInstallment] = useState(null);
 
   const fetchDossier = useCallback(async () => {
     try {
@@ -135,7 +168,7 @@ export default function StudentProfilePage() {
   }, [dossier?.timeline, isQuranEnabled, isPreschoolEnabled, isTutoringEnabled]);
 
   const enrollmentsCount = dossier?.enrollments?.length || 0;
-  const paymentsCount = dossier?.payments?.length || 0;
+  const paymentsCount = (dossier?.payments?.length || 0) + (dossier?.productSales?.length || 0);
 
   const profileTabs = useMemo(() => {
     const list = [
@@ -151,6 +184,26 @@ export default function StudentProfilePage() {
     );
     return list;
   }, [hasEvaluationsTab, enrollmentsCount, paymentsCount, t]);
+
+  // Load products when sell modal opens
+  useEffect(() => {
+    if (sellProductModalOpen) {
+      api.get('/products').then(res => {
+        if (res.success && res.data?.length > 0) {
+          setProductsList(res.data);
+          const first = res.data[0];
+          setSellProductFormData({
+            product_id: first.id,
+            quantity: 1,
+            unit_price: first.prix_vente,
+            paid_amount: first.prix_vente,
+            sale_date: new Date().toISOString().split('T')[0],
+            notes: ''
+          });
+        }
+      }).catch(console.error);
+    }
+  }, [sellProductModalOpen]);
 
   if (loading) {
     return (
@@ -176,7 +229,91 @@ export default function StudentProfilePage() {
     );
   }
 
-  const { student, summary, enrollments, transfers, tahfizLogs, preschoolLogs, tutoringGrades, yearlyAttendanceRates, payments, timeline } = dossier;
+  const { student, summary, enrollments, transfers, tahfizLogs, preschoolLogs, tutoringGrades, yearlyAttendanceRates, payments, productSales = [], timeline } = dossier;
+
+  const handleOpenSellModal = () => {
+    setSellProductModalOpen(true);
+  };
+
+  const handleSelectProductInModal = (prodId) => {
+    const p = productsList.find(prod => String(prod.id) === String(prodId));
+    if (p) {
+      const price = parseFloat(p.prix_vente || 0);
+      const qty = parseInt(sellProductFormData.quantity || 1, 10);
+      setSellProductFormData(prev => ({
+        ...prev,
+        product_id: p.id,
+        unit_price: price,
+        paid_amount: qty * price
+      }));
+    }
+  };
+
+  const handleExecuteSell = async (e) => {
+    e.preventDefault();
+    try {
+      setSellingProduct(true);
+      const res = await api.post('/products/sell', {
+        student_id: student.id,
+        ...sellProductFormData
+      });
+      if (res.success) {
+        showNotification(res.message || t('common.saved'), 'success');
+        setSellProductModalOpen(false);
+        fetchDossier();
+        setSelectedSaleForReceipt(res.data);
+        setSelectedPaymentInstallment(null);
+        setSaleReceiptModalOpen(true);
+      }
+    } catch (err) {
+      showNotification(err.message || t('common.error'), 'error');
+    } finally {
+      setSellingProduct(false);
+    }
+  };
+
+  const handleOpenPayDebtModal = (sale) => {
+    setSelectedSaleForPayment(sale);
+    setPayDebtFormData({
+      amount: sale.remaining_debt,
+      payment_date: new Date().toISOString().split('T')[0],
+      notes: ''
+    });
+    setPayDebtModalOpen(true);
+  };
+
+  const handleExecutePayDebt = async (e) => {
+    e.preventDefault();
+    if (!selectedSaleForPayment) return;
+    try {
+      setPayingDebt(true);
+      const res = await api.post(`/products/sales/${selectedSaleForPayment.id}/pay-debt`, payDebtFormData);
+      if (res.success) {
+        showNotification(res.message || t('common.saved'), 'success');
+        setPayDebtModalOpen(false);
+        fetchDossier();
+        setSelectedSaleForReceipt({
+          ...selectedSaleForPayment,
+          student_name: selectedSaleForPayment.student_name || student?.full_name,
+          student_reg_no: selectedSaleForPayment.student_reg_no || selectedSaleForPayment.reg_no || student?.reg_no,
+          reg_no: selectedSaleForPayment.reg_no || selectedSaleForPayment.student_reg_no || student?.reg_no,
+          paid_amount: res.data.total_paid_now,
+          remaining_debt: res.data.remaining_debt_now,
+          status: res.data.status
+        });
+        setSelectedPaymentInstallment({
+          receipt_no: res.data.payment_receipt_no,
+          amount: res.data.amount_paid,
+          payment_date: payDebtFormData.payment_date
+        });
+        setSaleReceiptModalOpen(true);
+      }
+    } catch (err) {
+      showNotification(err.message || t('common.error'), 'error');
+    } finally {
+      setPayingDebt(false);
+    }
+  };
 
   const handleOpenEdit = () => {
     setEditFormData({
@@ -293,6 +430,15 @@ export default function StudentProfilePage() {
         <div className="flex items-center gap-2">
           <button
             type="button"
+            onClick={handleOpenSellModal}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-all hover:scale-[1.02]"
+          >
+            <ShoppingBag className="w-4 h-4" />
+            <span>{t('products.sell_to_student_btn', 'بيع منتج للطالب')}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleOpenEdit}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-surface-card hover:bg-blue-600 hover:text-white text-blue-600 dark:text-blue-400 text-xs font-bold border border-border hover:border-blue-600 transition-all shadow-sm"
           >
@@ -399,12 +545,21 @@ export default function StudentProfilePage() {
                 {summary.currentDebt > 0 ? t('student_profile.unpaid_dues_label') : t('student_profile.quick_stats_fees')}
               </span>
               <span className={`text-xl font-black font-cairo ${summary.currentDebt > 0 ? 'text-rose-600' : 'text-purple-600'}`}>
-                {summary.currentDebt > 0 ? `${summary.currentDebt.toLocaleString()} ${t('common.currency')}` : `${summary.totalPaid.toLocaleString()} ${t('common.currency')}`}
+                {summary.currentDebt > 0 ? `${summary.currentDebt.toLocaleString()} ${t('common.currency')}` : `${(summary.overallTotalPaid || summary.totalPaid).toLocaleString()} ${t('common.currency')}`}
               </span>
               {summary.currentDebt > 0 && (
-                <span className="text-[10px] text-rose-500 font-bold block mt-0.5">
-                  {t('student_profile.unpaid_status_badge')} ({summary.unpaidEnrollments?.[0]?.month_ref})
-                </span>
+                <div className="text-[10px] space-y-0.5 mt-0.5">
+                  {summary.tuitionDebt > 0 && (
+                    <span className="text-rose-500 font-bold block">
+                      {t('student_profile.tuition_debt_label', 'اشتراكات:')} {summary.tuitionDebt.toLocaleString()} {t('common.currency')}
+                    </span>
+                  )}
+                  {summary.productDebt > 0 && (
+                    <span className="text-amber-600 dark:text-amber-400 font-bold block">
+                      {t('student_profile.product_debt_label', 'مشتريات:')} {summary.productDebt.toLocaleString()} {t('common.currency')}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -464,13 +619,16 @@ export default function StudentProfilePage() {
                 const isTahfiz = item.type === 'TAHFIZ_EVALUATION';
                 const isPreschool = item.type === 'PRESCHOOL_EVALUATION';
                 const isTutoring = item.type === 'TUTORING_GRADE';
+                const isProductPurchase = item.type === 'PRODUCT_PURCHASE';
 
                 return (
                   <div key={item.id} className="relative group">
                     
                     {/* Timeline Node Dot */}
                     <div className={`absolute ${isRtl ? '-right-[27px] sm:-right-[31px]' : '-left-[27px] sm:-left-[31px]'} top-1.5 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full border-2 border-surface-card ${
-                      isOfficialTransfer || isTransferOut
+                      isProductPurchase
+                        ? item.status === 'PAID' ? 'bg-emerald-500 ring-4 ring-emerald-500/20' : 'bg-rose-500 ring-4 ring-rose-500/20'
+                        : isOfficialTransfer || isTransferOut
                         ? 'bg-amber-500 ring-4 ring-amber-500/20'
                         : isTahfiz
                         ? 'bg-emerald-500 ring-4 ring-emerald-500/20'
@@ -486,7 +644,9 @@ export default function StudentProfilePage() {
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2">
                           <span className={`px-2.5 py-0.5 rounded text-[11px] font-bold ${
-                            isOfficialTransfer || isTransferOut
+                            isProductPurchase
+                              ? item.status === 'PAID' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                              : isOfficialTransfer || isTransferOut
                               ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
                               : isTahfiz
                               ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
@@ -496,7 +656,9 @@ export default function StudentProfilePage() {
                               ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300'
                               : 'bg-primary/15 text-primary'
                           }`}>
-                            {isOfficialTransfer
+                            {isProductPurchase
+                              ? t('student_profile.event_product_purchase', 'شراء منتج / أدوات')
+                              : isOfficialTransfer
                               ? t('student_profile.event_official_transfer')
                               : isTransferOut
                               ? t('student_profile.event_transfer_out')
@@ -509,7 +671,7 @@ export default function StudentProfilePage() {
                               : t('student_profile.event_tutoring')}
                           </span>
                           <span className="text-xs font-bold text-text-muted">
-                            {t('student_profile.academic_year_label', { year: item.year })}
+                            {item.year ? t('student_profile.academic_year_label', { year: item.year }) : ''}
                           </span>
                         </div>
                         <div className="flex items-center gap-2.5 text-xs font-mono text-text-muted flex-wrap">
@@ -517,6 +679,24 @@ export default function StudentProfilePage() {
                             <Calendar className="w-3.5 h-3.5 text-text-muted/80" />
                             {DateTimeFormatter.formatDate(item.date)}
                           </span>
+                          {isProductPurchase && item.saleData && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedSaleForReceipt({
+                                  ...item.saleData,
+                                  student_name: student.full_name,
+                                  reg_no: student.reg_no
+                                });
+                                setSelectedPaymentInstallment(null);
+                                setSaleReceiptModalOpen(true);
+                              }}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-card hover:bg-primary hover:text-white border border-border text-[10px] font-bold transition-colors"
+                            >
+                              <Printer className="w-3 h-3" />
+                              <span>{t('student_profile.preview_receipt')}</span>
+                            </button>
+                          )}
                           <span className="flex items-center gap-1 text-primary font-bold bg-primary/10 px-2 py-0.5 rounded-md">
                             <Clock className="w-3 h-3 text-primary" />
                             {DateTimeFormatter.formatTime(item.date)}
@@ -907,19 +1087,231 @@ export default function StudentProfilePage() {
                   <h4 className="text-sm font-bold text-rose-800 dark:text-rose-300">
                     {t('student_profile.unpaid_banner_title')}: <span className="font-mono font-extrabold">{summary.currentDebt.toLocaleString()} {t('common.currency')}</span>
                   </h4>
-                  <p className="text-xs text-rose-700/80 dark:text-rose-400 mt-0.5">
-                    {summary.unpaidEnrollments?.map(u => `${u.group_name} (${u.month_ref})`).join(isRtl ? '، ' : ', ')}
-                  </p>
+                  <div className="text-xs text-rose-700/80 dark:text-rose-400 mt-0.5 space-y-0.5">
+                    {summary.tuitionDebt > 0 && (
+                      <div>
+                        {t('student_profile.tuition_debt_label', 'اشتراكات الأفواج:')} {summary.tuitionDebt.toLocaleString()} {t('common.currency')} ({summary.unpaidEnrollments?.map(u => `${u.group_name} (${u.month_ref})`).join(isRtl ? '، ' : ', ')})
+                      </div>
+                    )}
+                    {summary.productDebt > 0 && (
+                      <div>
+                        {t('student_profile.product_debt_label', 'ديون مشتريات المنتجات:')} {summary.productDebt.toLocaleString()} {t('common.currency')}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-              <Link
-                to="/finance"
-                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm transition-colors text-center shrink-0"
-              >
-                {t('student_profile.go_to_finance_btn')}
-              </Link>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleOpenSellModal}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-colors text-center shrink-0"
+                >
+                  {t('products.sell_to_student_btn', 'بيع منتج')}
+                </button>
+                <Link
+                  to="/finance"
+                  className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm transition-colors text-center shrink-0"
+                >
+                  {t('student_profile.go_to_finance_btn')}
+                </Link>
+              </div>
             </div>
           )}
+
+          {/* Section: Product Purchases & Debts Ledger */}
+          <div className="space-y-3 pt-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border pb-3">
+              <div>
+                <h4 className="text-base font-bold text-text-main flex items-center gap-2">
+                  <ShoppingBag className="w-4 h-4 text-primary" />
+                  <span>{t('student_profile.product_sales_title', 'سجل مشتريات المنتجات والأدوات المدرسية')}</span>
+                </h4>
+                <p className="text-[11px] text-text-muted">
+                  {t('student_profile.product_sales_subtitle', 'تاريخ مشتريات الطالب مع متابعة حالة السداد والديون المتبقية')}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {summary.productDebt > 0 && (
+                  <span className="text-xs font-bold text-rose-600 bg-rose-500/10 px-2.5 py-1 rounded-xl border border-rose-500/20">
+                    {t('student_profile.product_debt_badge', 'دين المنتجات:')} {summary.productDebt.toLocaleString()} {t('common.currency')}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={handleOpenSellModal}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>{t('products.sell_btn', 'بيع منتج')}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Desktop Table for Product Purchases */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-start text-xs">
+                <thead className="bg-surface text-text-muted font-bold">
+                  <tr>
+                    <th className="p-3 text-start">{t('products.table_receipt_no', 'رقم الوصل')}</th>
+                    <th className="p-3 text-start">{t('products.table_product', 'المنتج')}</th>
+                    <th className="p-3 text-center">{t('products.table_quantity', 'الكمية')}</th>
+                    <th className="p-3 text-start">{t('products.table_total_amount', 'الإجمالي')}</th>
+                    <th className="p-3 text-start">{t('products.table_paid_amount', 'المدفوع')}</th>
+                    <th className="p-3 text-start">{t('products.table_remaining_debt', 'المتبقي (الدين)')}</th>
+                    <th className="p-3 text-start">{t('common.status', 'الحالة')}</th>
+                    <th className="p-3 text-start">{t('common.date', 'التاريخ')}</th>
+                    <th className="p-3 text-center">{t('common.actions', 'الإجراءات')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {productSales.length === 0 ? (
+                    <tr>
+                      <td colSpan="9" className="p-6 text-center text-text-muted">
+                        {t('student_profile.no_product_sales', 'لا توجد مشتريات سابقة لهذا الطالب')}
+                      </td>
+                    </tr>
+                  ) : (
+                    productSales.map((ps) => {
+                      const debt = parseFloat(ps.remaining_debt || 0);
+                      const isPaid = debt === 0;
+
+                      return (
+                        <tr key={ps.id} className="hover:bg-surface/50">
+                          <td className="p-3 font-mono font-bold text-primary">{ps.receipt_no}</td>
+                          <td className="p-3 font-bold text-text-main">{ps.product_name}</td>
+                          <td className="p-3 text-center font-mono font-bold">{ps.quantity}</td>
+                          <td className="p-3 font-mono font-bold">{parseFloat(ps.total_amount).toLocaleString()} {t('common.currency')}</td>
+                          <td className="p-3 font-mono font-bold text-emerald-600">{parseFloat(ps.paid_amount).toLocaleString()} {t('common.currency')}</td>
+                          <td className="p-3">
+                            {debt > 0 ? (
+                              <span className="inline-flex items-center gap-1 font-bold text-rose-600 bg-rose-500/10 px-2.5 py-0.5 rounded-full border border-rose-500/20">
+                                {debt.toLocaleString()} {t('common.currency')}
+                              </span>
+                            ) : (
+                              <span className="text-emerald-600 font-bold">0.00 {t('common.currency')}</span>
+                            )}
+                          </td>
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              isPaid ? 'bg-emerald-500/15 text-emerald-700' : 'bg-rose-500/15 text-rose-700'
+                            }`}>
+                              {isPaid ? t('products.status_paid', 'مسدد') : t('products.status_debt', 'عليه دين')}
+                            </span>
+                          </td>
+                          <td className="p-3 font-mono text-text-muted">{DateTimeFormatter.formatDate(ps.sale_date)}</td>
+                          <td className="p-3 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              {debt > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenPayDebtModal(ps)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold transition-colors"
+                                  title={t('products.pay_debt_btn', 'سداد الدين')}
+                                >
+                                  <ArrowDownCircle className="w-3 h-3" />
+                                  <span>{t('products.pay_debt_short', 'سداد')}</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedSaleForReceipt({
+                                    ...ps,
+                                    student_name: student.full_name,
+                                    reg_no: student.reg_no
+                                  });
+                                  setSelectedPaymentInstallment(null);
+                                  setSaleReceiptModalOpen(true);
+                                }}
+                                className="p-1.5 rounded-lg bg-surface hover:bg-primary hover:text-white text-text-main border border-border transition-colors"
+                                title={t('student_profile.preview_receipt')}
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Cards for Product Purchases */}
+            <div className="md:hidden space-y-2.5">
+              {productSales.length === 0 ? (
+                <p className="p-4 text-center text-text-muted text-xs">{t('student_profile.no_product_sales')}</p>
+              ) : (
+                productSales.map((ps) => {
+                  const debt = parseFloat(ps.remaining_debt || 0);
+                  const isPaid = debt === 0;
+
+                  return (
+                    <div key={ps.id} className="p-3.5 bg-surface rounded-2xl border border-border space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono font-bold text-xs text-primary">{ps.receipt_no}</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          isPaid ? 'bg-emerald-500/15 text-emerald-700' : 'bg-rose-500/15 text-rose-700'
+                        }`}>
+                          {isPaid ? t('products.status_paid', 'مسدد') : `${t('products.status_debt')}: ${debt.toLocaleString()} دج`}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between text-xs">
+                        <span className="font-bold text-text-main">{ps.product_name}</span>
+                        <span className="font-mono text-text-muted">{ps.quantity} قطعة</span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs pt-1.5 border-t border-border/60">
+                        <span className="text-text-muted">{DateTimeFormatter.formatDate(ps.sale_date)}</span>
+                        <span className="font-mono font-bold text-text-main">{parseFloat(ps.total_amount).toLocaleString()} {t('common.currency')}</span>
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-1.5 border-t border-border/60">
+                        {debt > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenPayDebtModal(ps)}
+                            className="flex-1 py-1 px-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1"
+                          >
+                            <ArrowDownCircle className="w-3.5 h-3.5" />
+                            <span>{t('products.pay_debt_short', 'سداد الدين')}</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedSaleForReceipt({
+                              ...ps,
+                              student_name: student.full_name,
+                              reg_no: student.reg_no
+                            });
+                            setSelectedPaymentInstallment(null);
+                            setSaleReceiptModalOpen(true);
+                          }}
+                          className="py-1 px-3 rounded-lg bg-surface-card hover:bg-primary hover:text-white border border-border text-xs font-bold flex items-center justify-center gap-1"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                          <span>{t('student_profile.preview_receipt')}</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Section: Monthly Tuition Payments Title */}
+          <div className="pt-4 border-t border-border">
+            <h4 className="text-base font-bold text-text-main flex items-center gap-2 mb-2">
+              <Wallet className="w-4 h-4 text-primary" />
+              <span>{t('student_profile.tuition_payments_title', 'سجل اشتراكات الأفواج الشهرية')}</span>
+            </h4>
+          </div>
 
           {/* Desktop Table View */}
           <div className="hidden md:block overflow-x-auto">
@@ -1067,6 +1459,283 @@ export default function StudentProfilePage() {
           onClose={() => setReceiptModalOpen(false)}
           payment={selectedPaymentForReceipt}
         />
+      )}
+
+      {/* Sale Receipt Modal */}
+      {saleReceiptModalOpen && selectedSaleForReceipt && (
+        <SaleReceiptModal
+          isOpen={saleReceiptModalOpen}
+          onClose={() => setSaleReceiptModalOpen(false)}
+          sale={selectedSaleForReceipt}
+          paymentInstallment={selectedPaymentInstallment}
+          studentName={student?.full_name}
+          studentRegNo={student?.reg_no}
+        />
+      )}
+
+      {/* Sell Product to Student Modal */}
+      {sellProductModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-surface-card border border-border w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-border bg-surface/50">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600">
+                  <ShoppingBag className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-text-main">{t('products.sell_modal_title', 'بيع منتج للطالب')}</h3>
+                  <p className="text-xs text-text-muted">{student.full_name} ({student.reg_no})</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSellProductModalOpen(false)}
+                className="p-1.5 text-text-muted hover:text-text-main rounded-lg hover:bg-surface transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleExecuteSell} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-text-main mb-1">
+                  {t('products.select_product', 'اختيار المنتج')} <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  required
+                  value={sellProductFormData.product_id}
+                  onChange={(e) => handleSelectProductInModal(e.target.value)}
+                  className="w-full p-2.5 rounded-xl bg-surface border border-border text-xs font-bold text-text-main focus:ring-2 focus:ring-primary focus:outline-none"
+                >
+                  <option value="">{t('common.select_placeholder')}</option>
+                  {productsList.map(p => (
+                    <option key={p.id} value={p.id} disabled={p.qte <= 0}>
+                      {p.designation} — {parseFloat(p.prix_vente).toLocaleString()} {t('common.currency')} {p.qte <= 0 ? '(نافذ)' : `(المتوفر: ${p.qte})`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-text-main mb-1">
+                    {t('products.table_quantity', 'الكمية')} <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={sellProductFormData.quantity}
+                    onChange={(e) => {
+                      const qty = Math.max(1, parseInt(e.target.value || 1, 10));
+                      const price = parseFloat(sellProductFormData.unit_price || 0);
+                      setSellProductFormData(prev => ({
+                        ...prev,
+                        quantity: qty,
+                        paid_amount: qty * price
+                      }));
+                    }}
+                    className="w-full p-2.5 rounded-xl bg-surface border border-border text-xs font-mono font-bold text-text-main focus:ring-2 focus:ring-primary focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-text-main mb-1">
+                    {t('products.table_unit_price', 'سعر الوحدة (دج)')} <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    required
+                    value={sellProductFormData.unit_price}
+                    onChange={(e) => {
+                      const price = parseFloat(e.target.value || 0);
+                      const qty = parseInt(sellProductFormData.quantity || 1, 10);
+                      setSellProductFormData(prev => ({
+                        ...prev,
+                        unit_price: e.target.value,
+                        paid_amount: qty * price
+                      }));
+                    }}
+                    className="w-full p-2.5 rounded-xl bg-surface border border-border text-xs font-mono font-bold text-text-main focus:ring-2 focus:ring-primary focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Settlement calculation box */}
+              {(() => {
+                const total = Math.round((parseInt(sellProductFormData.quantity || 1, 10) * parseFloat(sellProductFormData.unit_price || 0)) * 100) / 100;
+                const paid = parseFloat(sellProductFormData.paid_amount || 0);
+                const debt = Math.max(0, Math.round((total - paid) * 100) / 100);
+
+                return (
+                  <div className="p-3.5 bg-surface rounded-2xl border border-border space-y-2.5">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="font-bold text-text-muted">{t('products.total_amount', 'الإجمالي:')}</span>
+                      <span className="font-mono font-black text-sm text-text-main">{total.toLocaleString()} {t('common.currency')}</span>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <label className="text-xs font-bold text-text-main">{t('products.paid_amount', 'المبلغ المدفوع فوراً (دج)')}</label>
+                        <div className="flex gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setSellProductFormData(prev => ({ ...prev, paid_amount: total }))}
+                            className="text-[10px] font-bold text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded"
+                          >
+                            {t('products.pay_full_preset', 'دفع كامل')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSellProductFormData(prev => ({ ...prev, paid_amount: 0 }))}
+                            className="text-[10px] font-bold text-rose-600 bg-rose-500/10 px-2 py-0.5 rounded"
+                          >
+                            {t('products.pay_zero_preset', 'دين كامل')}
+                          </button>
+                        </div>
+                      </div>
+                      <input
+                        type="number"
+                        min="0"
+                        max={total}
+                        value={sellProductFormData.paid_amount}
+                        onChange={(e) => setSellProductFormData({ ...sellProductFormData, paid_amount: e.target.value })}
+                        className="w-full p-2.5 rounded-xl bg-surface-card border border-border text-xs font-mono font-bold text-emerald-600 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className={`p-2 rounded-xl border flex justify-between items-center text-xs font-bold ${
+                      debt > 0 ? 'bg-rose-500/10 border-rose-500/25 text-rose-700' : 'bg-emerald-500/10 border-emerald-500/25 text-emerald-700'
+                    }`}>
+                      <span>{debt > 0 ? t('products.calculated_debt_notice', 'المتبقي كدين:') : t('products.status_paid', 'خالص بالكامل')}</span>
+                      <span className="font-mono font-black">{debt.toLocaleString()} {t('common.currency')}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div>
+                <label className="block text-xs font-bold text-text-main mb-1">{t('common.notes')}</label>
+                <input
+                  type="text"
+                  placeholder={t('products.notes_placeholder', 'ملاحظات إضافية...')}
+                  value={sellProductFormData.notes}
+                  onChange={(e) => setSellProductFormData({ ...sellProductFormData, notes: e.target.value })}
+                  className="w-full p-2.5 rounded-xl bg-surface border border-border text-xs text-text-main focus:outline-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => setSellProductModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-text-muted hover:bg-surface"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="submit"
+                  disabled={sellingProduct}
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md transition-all flex items-center gap-1.5"
+                >
+                  {sellingProduct && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                  <span>{t('products.confirm_sale_btn', 'تأكيد البيع')}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Pay Debt Modal */}
+      {payDebtModalOpen && selectedSaleForPayment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-surface-card border border-border w-full max-w-md rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-border bg-surface/50">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600">
+                  <ArrowDownCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-text-main">{t('products.pay_debt_title', 'سداد دين منتج')}</h3>
+                  <p className="text-xs text-text-muted">{selectedSaleForPayment.product_name} ({selectedSaleForPayment.receipt_no})</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPayDebtModalOpen(false)}
+                className="p-1.5 text-text-muted hover:text-text-main rounded-lg hover:bg-surface transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleExecutePayDebt} className="p-5 space-y-4">
+              <div className="p-3 bg-surface rounded-xl border border-border flex justify-between items-center text-xs">
+                <span className="font-bold text-text-muted">{t('products.remaining_debt')}:</span>
+                <span className="font-mono font-black text-rose-600 text-sm">
+                  {parseFloat(selectedSaleForPayment.remaining_debt).toLocaleString()} {t('common.currency')}
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-text-main mb-1">
+                  {t('products.amount_to_pay', 'مبلغ السداد (دج)')} <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max={selectedSaleForPayment.remaining_debt}
+                  required
+                  value={payDebtFormData.amount}
+                  onChange={(e) => setPayDebtFormData({ ...payDebtFormData, amount: e.target.value })}
+                  className="w-full p-2.5 rounded-xl bg-surface border border-border text-xs font-mono font-bold text-emerald-600 focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-text-main mb-1">{t('common.date')}</label>
+                <input
+                  type="date"
+                  required
+                  value={payDebtFormData.payment_date}
+                  onChange={(e) => setPayDebtFormData({ ...payDebtFormData, payment_date: e.target.value })}
+                  className="w-full p-2.5 rounded-xl bg-surface border border-border text-xs font-mono text-text-main focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-text-main mb-1">{t('common.notes')}</label>
+                <input
+                  type="text"
+                  placeholder={t('products.pay_notes_placeholder', 'ملاحظات الدفعة...')}
+                  value={payDebtFormData.notes}
+                  onChange={(e) => setPayDebtFormData({ ...payDebtFormData, notes: e.target.value })}
+                  className="w-full p-2.5 rounded-xl bg-surface border border-border text-xs text-text-main focus:outline-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => setPayDebtModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-text-muted hover:bg-surface"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="submit"
+                  disabled={payingDebt}
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md transition-all flex items-center gap-1.5"
+                >
+                  {payingDebt && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                  <span>{t('products.confirm_payment_btn', 'تأكيد السداد')}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* Edit Student Modal */}
