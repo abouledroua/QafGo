@@ -6,6 +6,7 @@ import api from '../services/api';
 import { ArrowLeftRight, Calendar, User, Search } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { DateTimeFormatter } from '../utils/dateTimeFormatter';
+import ExportExcelButton from '../components/ExportExcelButton';
 
 export default function TransfersPage() {
   const { selectedYearId, selectedYearObj } = useAcademicYear();
@@ -72,9 +73,30 @@ export default function TransfersPage() {
           />
         </div>
 
-        <span className="text-xs font-bold text-text-muted">
-          {t('transfers.total_transfers', { count: filteredTransfers.length })}
-        </span>
+        <div className="flex items-center gap-3">
+          <ExportExcelButton
+            filename={`transfers_${selectedYearObj?.label?.replace(/\//g, '_') || 'year'}`}
+            sheetName="Transfers"
+            columns={[
+              { header: t('transfers.table_reg_no', 'رقم التسجيل'), key: 'reg_no', width: 14 },
+              { header: t('transfers.table_student_name', 'اسم الطالب'), key: 'student_name', width: 22 },
+              { header: t('transfers.table_from_group', 'من فوج'), key: 'from_group_name', width: 18 },
+              { header: t('transfers.table_to_group', 'إلى فوج'), key: 'to_group_name', width: 18 },
+              { header: t('transfers.table_reason', 'السبب'), key: 'reason', width: 25 },
+              { 
+                header: t('transfers.table_date', 'التاريخ'), 
+                key: 'transferred_at', 
+                width: 15,
+                formatter: (val) => DateTimeFormatter.formatDate(val)
+              }
+            ]}
+            data={filteredTransfers}
+            disabled={filteredTransfers.length === 0}
+          />
+          <span className="text-xs font-bold text-text-muted">
+            {t('transfers.total_transfers', { count: filteredTransfers.length })}
+          </span>
+        </div>
       </div>
 
       {/* Transfers Cards / Table */}

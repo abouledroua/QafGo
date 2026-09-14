@@ -31,6 +31,7 @@ import CashTransactionModal from '../components/CashTransactionModal';
 import CashReceiptModal from '../components/CashReceiptModal';
 import DateInput from '../components/DateInput';
 import { DateTimeFormatter, getConsecutiveMonths } from '../utils/dateTimeFormatter';
+import ExportExcelButton from '../components/ExportExcelButton';
 
 export default function FinancePage() {
   const { selectedYearId, selectedYearObj } = useAcademicYear();
@@ -492,6 +493,22 @@ export default function FinancePage() {
                 <option value="EXEMPTED">{t('finance.filter_exempted_only')}</option>
               </select>
             </div>
+
+            <ExportExcelButton
+              data={payments}
+              columns={[
+                { key: 'receipt_no', header: t('finance.table_receipt_no', 'رقم الوصل') },
+                { key: 'student_name', header: t('finance.table_student', 'اسم الطالب') },
+                { key: 'month_ref', header: t('finance.table_month', 'الشهر المرجعي') },
+                { key: 'group_name', header: t('finance.table_group', 'الفوج') },
+                { key: 'amount', header: t('finance.table_amount', 'المبلغ المدفوع') },
+                { key: 'payment_status', header: t('finance.table_type', 'نوع الدفع'), transform: (s) => s === 'EXEMPTED' ? t('finance.exempted', 'إعفاء') : t('finance.paid', 'تسديد') },
+                { key: 'payment_date', header: t('finance.table_date', 'تاريخ الدفع'), transform: (d) => d ? DateTimeFormatter.formatDate(d) : '' }
+              ]}
+              filename={`payments_${selectedYearObj?.label?.replace(/\//g, '_') || 'receipts'}`}
+              sheetName={t('finance.tab_payments', 'المدفوعات')}
+              label={t('settings.export_excel', 'تصدير إلى Excel')}
+            />
           </div>
 
           {/* Table */}
@@ -649,13 +666,33 @@ export default function FinancePage() {
               )}
             </div>
 
-            <Link
-              to="/products"
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-surface hover:bg-surface-hover text-primary border border-border text-xs font-bold transition-all self-end md:self-auto"
-            >
-              <ShoppingBag className="w-4 h-4" />
-              <span>{t('products.go_to_inventory', 'إدارة المخزون والمبيعات')}</span>
-            </Link>
+            <div className="flex items-center gap-2 self-end md:self-auto">
+              <ExportExcelButton
+                data={productSales}
+                columns={[
+                  { key: 'receipt_no', header: t('finance.table_receipt_no', 'رقم الوصل') },
+                  { key: 'student_name', header: t('finance.table_student', 'اسم الطالب') },
+                  { key: 'product_name', header: t('products.product_name', 'المنتج') },
+                  { key: 'quantity', header: t('products.quantity', 'الكمية') },
+                  { key: 'total_amount', header: t('products.total_amount', 'المبلغ الإجمالي') },
+                  { key: 'paid_amount', header: t('finance.paid_amount', 'المدفوع') },
+                  { key: 'remaining_debt', header: t('products.debt', 'الدين المتبقي') },
+                  { key: 'status', header: t('common.status', 'الحالة'), transform: (s) => s === 'PAID' ? t('products.status_paid', 'مسدد') : s === 'PARTIAL' ? t('products.status_partial', 'دفع جزئي') : t('products.status_unpaid', 'غير مسدد') },
+                  { key: 'sale_date', header: t('finance.table_date', 'تاريخ العملية'), transform: (d) => d ? DateTimeFormatter.formatDate(d) : '' }
+                ]}
+                filename={`product_sales_${selectedYearObj?.label?.replace(/\//g, '_') || 'sales'}`}
+                sheetName={t('finance.tab_sales', 'المبيعات')}
+                label={t('settings.export_excel', 'تصدير إلى Excel')}
+              />
+
+              <Link
+                to="/products"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-surface hover:bg-surface-hover text-primary border border-border text-xs font-bold transition-all"
+              >
+                <ShoppingBag className="w-4 h-4" />
+                <span>{t('products.go_to_inventory', 'إدارة المخزون والمبيعات')}</span>
+              </Link>
+            </div>
           </div>
 
           {/* Table */}
@@ -817,6 +854,22 @@ export default function FinancePage() {
                 value={selectedMonth}
                 onChange={(e) => setSelectedMonth(e.target.value)}
                 className="p-2 bg-surface-card border border-border rounded-xl text-xs font-bold text-text-main font-mono"
+              />
+
+              <ExportExcelButton
+                data={unpaidStudents}
+                columns={[
+                  { key: 'reg_no', header: t('students.table_reg_no', 'رقم القيد') },
+                  { key: 'student_name', header: t('finance.table_student', 'اسم الطالب') },
+                  { key: 'group_name', header: t('finance.table_group', 'الفوج') },
+                  { key: 'original_fee', header: t('finance.unpaid_table_fee', 'المبلغ الأصلي') },
+                  { key: 'expected_amount', header: t('finance.unpaid_table_due', 'المبلغ المستحق (الدين)') },
+                  { key: 'guardian_name', header: t('students.table_guardian', 'ولي الأمر') },
+                  { key: 'guardian_phone', header: t('students.table_phone', 'رقم الهاتف') }
+                ]}
+                filename={`unpaid_debt_${selectedMonth}`}
+                sheetName={t('finance.tab_unpaid', 'المتأخرات')}
+                label={t('settings.export_excel', 'تصدير إلى Excel')}
               />
             </div>
           </div>
@@ -1065,6 +1118,23 @@ export default function FinancePage() {
 
             {/* Quick Record Buttons */}
             <div className="flex items-center gap-2 self-end md:self-auto">
+              <ExportExcelButton
+                data={cashTransactions}
+                columns={[
+                  { key: 'receipt_no', header: t('finance.table_receipt_no', 'رقم الوصل') },
+                  { key: 'type', header: t('finance.cash_table_type', 'نوع الحركة'), transform: (type) => type === 'ALIMENTATION' ? t('finance.cash_in', 'تغذية / إيداع') : t('finance.cash_out', 'سحب / مصروف') },
+                  { key: 'amount', header: t('finance.cash_table_amount', 'المبلغ') },
+                  { key: 'category', header: t('finance.cash_table_category', 'الفئة') },
+                  { key: 'beneficiary_name', header: t('finance.cash_table_beneficiary', 'المستفيد / المصدر') },
+                  { key: 'performed_by_name', header: t('finance.cash_table_user', 'المنفذ') },
+                  { key: 'notes', header: t('finance.cash_table_notes', 'البيان والملاحظات') },
+                  { key: 'transaction_date', header: t('finance.table_date', 'التاريخ'), transform: (d) => d ? DateTimeFormatter.formatDate(d) : '' }
+                ]}
+                filename={`cash_register_${selectedYearObj?.label?.replace(/\//g, '_') || 'transactions'}`}
+                sheetName={t('finance.tab_cash_register', 'حركات الصندوق')}
+                label={t('settings.export_excel', 'تصدير إلى Excel')}
+              />
+
               <button
                 type="button"
                 onClick={() => {

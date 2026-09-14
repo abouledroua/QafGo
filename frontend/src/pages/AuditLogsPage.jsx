@@ -5,6 +5,7 @@ import { useNotification } from '../context/NotificationContext';
 import api from '../services/api';
 import DateInput from '../components/DateInput';
 import { DateTimeFormatter } from '../utils/dateTimeFormatter';
+import ExportExcelButton from '../components/ExportExcelButton';
 import {
   ShieldAlert,
   ShieldCheck,
@@ -347,6 +348,24 @@ export default function AuditLogsPage() {
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
+
+          <ExportExcelButton
+            data={logs}
+            columns={[
+              { key: 'created_at', header: 'التاريخ والوقت', transform: (d) => d ? DateTimeFormatter.formatDateTime(d) : '' },
+              { key: 'user_name', header: 'المستخدم' },
+              { key: 'action_type', header: 'نوع الإجراء' },
+              { key: 'data_type', header: 'الوحدة' },
+              { key: 'entity_name', header: 'العنصر' },
+              { key: 'details', header: 'التفاصيل' },
+              { key: 'poste_name', header: 'محطة العمل / الجهاز' },
+              { key: 'ip_address', header: 'عنوان IP' }
+            ]}
+            filename="سجل_العمليات_والنشاطات"
+            sheetName="سجل_النشاطات"
+            label={t('settings.export_excel', 'تصدير إلى Excel')}
+            variant="outline"
+          />
 
           <button
             type="button"

@@ -29,6 +29,7 @@ import {
   Check,
   Sparkles
 } from 'lucide-react';
+import ExportExcelButton from '../components/ExportExcelButton';
 
 const DAYS_OF_WEEK = [
   { key: 'SATURDAY', translationKey: 'day_saturday' },
@@ -460,6 +461,41 @@ export default function ClassroomsTimetablePage() {
               <Printer className="w-4 h-4 text-primary" />
               <span>{t('classrooms_timetable.print_schedule')}</span>
             </button>
+
+            {activeTab === 'TIMETABLE' ? (
+              <ExportExcelButton
+                data={filteredSessions}
+                columns={[
+                  { key: 'day_of_week', header: t('classrooms_timetable.day', 'اليوم'), transform: (d) => t(`classrooms_timetable.day_${d.toLowerCase()}`, d) },
+                  { key: 'start_time', header: t('classrooms_timetable.start_time', 'وقت البدء') },
+                  { key: 'end_time', header: t('classrooms_timetable.end_time', 'وقت الانتهاء') },
+                  { key: 'classroom_name', header: t('classrooms_timetable.classroom', 'القاعة') },
+                  { key: 'group_name', header: t('classrooms_timetable.group', 'الفوج') },
+                  { key: 'teacher_name', header: t('classrooms_timetable.teacher', 'الأستاذ') },
+                  { key: 'track_name', header: t('classrooms_timetable.track', 'المسار') }
+                ]}
+                filename="weekly_timetable"
+                sheetName={t('classrooms_timetable.tab_timetable', 'الحصص')}
+                label={t('settings.export_excel', 'تصدير إلى Excel')}
+                variant="outline"
+              />
+            ) : (
+              <ExportExcelButton
+                data={classrooms}
+                columns={[
+                  { key: 'code', header: t('classrooms_timetable.code', 'كود القاعة') },
+                  { key: 'name', header: t('classrooms_timetable.name', 'اسم القاعة') },
+                  { key: 'capacity', header: t('classrooms_timetable.capacity', 'سعة الاستيعاب') },
+                  { key: 'type', header: t('classrooms_timetable.type', 'النوع') },
+                  { key: 'status', header: t('common.status', 'الحالة'), transform: (s) => s === 'AVAILABLE' ? t('classrooms_timetable.available', 'متاحة') : t('classrooms_timetable.occupied', 'غير متاحة') },
+                  { key: 'equipment', header: t('classrooms_timetable.equipment', 'التجهيزات') }
+                ]}
+                filename="classrooms_directory"
+                sheetName={t('classrooms_timetable.tab_classrooms', 'القاعات')}
+                label={t('settings.export_excel', 'تصدير إلى Excel')}
+                variant="outline"
+              />
+            )}
 
             {activeTab === 'TIMETABLE' ? (
               <button

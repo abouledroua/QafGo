@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { DateTimeFormatter } from '../utils/dateTimeFormatter';
+import ExportExcelButton from '../components/ExportExcelButton';
 
 export default function StudentsPage() {
   const { selectedYearId, selectedYearObj } = useAcademicYear();
@@ -345,6 +346,25 @@ export default function StudentsPage() {
             <RefreshCw className={`w-4 h-4 text-primary ${recalculatingDebt ? 'animate-spin' : ''}`} />
             <span>{recalculatingDebt ? t('students.recalculating_debt') : t('students.recalculate_debt_btn')}</span>
           </button>
+
+          <ExportExcelButton
+            data={students}
+            columns={[
+              { key: 'registration_no', header: t('students.table_reg_no', 'رقم القيد') },
+              { key: 'full_name', header: t('students.table_name', 'الاسم واللقب') },
+              { key: 'gender', header: t('students.table_gender', 'الجنس'), transform: (g) => g === 'MALE' ? t('students.gender_male', 'ذكر') : t('students.gender_female', 'أنثى') },
+              { key: 'dob', header: t('students.table_dob', 'تاريخ الميلاد'), transform: (d) => d ? DateTimeFormatter.formatDate(d) : '' },
+              { key: 'guardian_name', header: t('students.table_guardian', 'ولي الأمر') },
+              { key: 'guardian_phone', header: t('students.table_phone', 'رقم الهاتف') },
+              { key: 'enrollments', header: t('students.table_groups', 'الأفواج والمسارات'), transform: (en) => en?.map(e => `${e.group_name} (${e.track_name || ''})`).join('، ') || '' },
+              { key: 'financial_status', header: t('students.table_financial_status', 'الوضعية المالية'), transform: (s) => s === 'UP_TO_DATE' ? t('students.status_up_to_date', 'مستوفى') : s === 'OVERDUE' ? t('students.status_overdue', 'متأخر') : t('students.status_not_enrolled', 'غير مسجل') },
+              { key: 'total_unpaid_debt', header: t('students.table_debt', 'الديون المتبقية') }
+            ]}
+            filename={`students_${selectedYearObj?.label?.replace(/\//g, '_') || 'list'}`}
+            sheetName={t('students.title', 'الطلاب')}
+            label={t('settings.export_excel', 'تصدير إلى Excel')}
+            className="px-4 py-3 rounded-2xl"
+          />
 
           <button
             type="button"

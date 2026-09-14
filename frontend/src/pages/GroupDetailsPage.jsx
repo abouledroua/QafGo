@@ -57,6 +57,7 @@ import PreschoolBadgesPrintModal from '../components/PreschoolBadgesPrintModal';
 import ReceiptModal from '../components/ReceiptModal';
 import RefundModal from '../components/RefundModal';
 import { DateTimeFormatter, getConsecutiveMonths } from '../utils/dateTimeFormatter';
+import ExportExcelButton from '../components/ExportExcelButton';
 
 export default function GroupDetailsPage() {
   const { id } = useParams();
@@ -1419,6 +1420,31 @@ export default function GroupDetailsPage() {
                   />
                 </div>
               )}
+              <ExportExcelButton
+                filename={`group_${group?.name || 'roster'}_students`}
+                sheetName="Roster"
+                columns={[
+                  { header: t('group_details.table_reg_no', 'رقم التسجيل'), key: 'reg_no', width: 14 },
+                  { header: t('group_details.table_student_name', 'اسم الطالب'), key: 'student_name', width: 24 },
+                  { header: t('group_details.table_academic_level', 'المستوى الدراسي'), key: 'academic_level', width: 18 },
+                  { 
+                    header: t('group_details.table_enrollment_status', 'الحالة'), 
+                    key: 'enrollment_status', 
+                    width: 15,
+                    formatter: (val) => val === 'ACTIVE' ? (t('common.status_active') || 'نشط') : val === 'TRANSFERRED' ? (t('common.status_transferred') || 'محول') : (t('common.status_dropped') || 'منسحب')
+                  },
+                  { 
+                    header: t('group_details.table_payment_status', 'الدفع'), 
+                    key: 'payment_info', 
+                    width: 15,
+                    formatter: (val) => val?.status || 'UNPAID'
+                  },
+                  { header: t('group_details.table_guardian', 'الولي'), key: 'guardian_name', width: 20 },
+                  { header: t('group_details.guardian_phone', 'هاتف الولي'), key: 'guardian_phone', width: 16 }
+                ]}
+                data={visibleStudents || []}
+                disabled={!visibleStudents || visibleStudents.length === 0}
+              />
               <button
                 type="button"
                 onClick={() => setPrintRosterModalOpen(true)}

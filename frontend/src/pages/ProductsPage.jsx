@@ -28,6 +28,7 @@ import { useAcademicYear } from '../context/AcademicYearContext';
 import { DateTimeFormatter } from '../utils/dateTimeFormatter';
 import SaleReceiptModal from '../components/SaleReceiptModal';
 import DateInput from '../components/DateInput';
+import ExportExcelButton from '../components/ExportExcelButton';
 
 export default function ProductsPage() {
   const { showNotification } = useNotification();
@@ -579,16 +580,32 @@ export default function ProductsPage() {
               />
             </div>
 
-            <select
-              value={stockFilter}
-              onChange={(e) => setStockFilter(e.target.value)}
-              className="p-2.5 rounded-xl bg-surface border border-border text-xs font-bold text-text-main"
-            >
-              <option value="">{t('products.filter_all_stock', 'جميع المنتجات بالمخزن')}</option>
-              <option value="IN_STOCK">{t('products.filter_in_stock', 'متوفر (> 5 قطع)')}</option>
-              <option value="LOW_STOCK">{t('products.filter_low_stock', 'مخزون منخفض (1-5 قطع)')}</option>
-              <option value="OUT_OF_STOCK">{t('products.filter_out_of_stock', 'نافذ (0 قطعة)')}</option>
-            </select>
+            <div className="flex items-center gap-2">
+              <select
+                value={stockFilter}
+                onChange={(e) => setStockFilter(e.target.value)}
+                className="p-2.5 rounded-xl bg-surface border border-border text-xs font-bold text-text-main"
+              >
+                <option value="">{t('products.filter_all_stock', 'جميع المنتجات بالمخزن')}</option>
+                <option value="IN_STOCK">{t('products.filter_in_stock', 'متوفر (> 5 قطع)')}</option>
+                <option value="LOW_STOCK">{t('products.filter_low_stock', 'مخزون منخفض (1-5 قطع)')}</option>
+                <option value="OUT_OF_STOCK">{t('products.filter_out_of_stock', 'نافذ (0 قطعة)')}</option>
+              </select>
+
+              <ExportExcelButton
+                data={products}
+                columns={[
+                  { key: 'designation', header: t('products.product_name', 'اسم المنتج') },
+                  { key: 'qte', header: t('products.stock_available', 'الكمية المتوفرة') },
+                  { key: 'prix_achat', header: t('products.purchase_price', 'سعر الشراء') },
+                  { key: 'prix_vente', header: t('products.selling_price', 'سعر البيع') },
+                  { key: 'total_sold_quantity', header: t('products.total_sold', 'إجمالي المبيعات') }
+                ]}
+                filename="inventory_products"
+                sheetName={t('products.tab_inventory', 'المخزون')}
+                label={t('settings.export_excel', 'تصدير إلى Excel')}
+              />
+            </div>
           </div>
 
           {/* Desktop Table View */}
@@ -887,6 +904,24 @@ export default function ProductsPage() {
               <option value="DEBT_ONLY">⚠️ {t('products.filter_debt_only', 'العمليات التي عليها ديون متبقية')}</option>
               <option value="PAID_ONLY">✓ {t('products.filter_paid_only', 'العمليات المسددة بالكامل')}</option>
             </select>
+
+            <ExportExcelButton
+              data={sales}
+              columns={[
+                { key: 'receipt_no', header: t('finance.table_receipt_no', 'رقم الوصل') },
+                { key: 'student_name', header: t('finance.table_student', 'اسم الطالب') },
+                { key: 'product_name', header: t('products.product_name', 'المنتج') },
+                { key: 'quantity', header: t('products.quantity', 'الكمية') },
+                { key: 'total_amount', header: t('products.total_amount', 'المبلغ الإجمالي') },
+                { key: 'paid_amount', header: t('finance.paid_amount', 'المدفوع') },
+                { key: 'remaining_debt', header: t('products.debt', 'الدين المتبقي') },
+                { key: 'status', header: t('common.status', 'الحالة'), transform: (s) => s === 'PAID' ? t('products.status_paid', 'مسدد') : s === 'PARTIAL' ? t('products.status_partial', 'دفع جزئي') : t('products.status_unpaid', 'غير مسدد') },
+                { key: 'sale_date', header: t('finance.table_date', 'تاريخ العملية'), transform: (d) => d ? DateTimeFormatter.formatDate(d) : '' }
+              ]}
+              filename="sales_history"
+              sheetName={t('products.tab_sales', 'المبيعات')}
+              label={t('settings.export_excel', 'تصدير إلى Excel')}
+            />
           </div>
 
           {/* Active Product Filter Pill if any */}

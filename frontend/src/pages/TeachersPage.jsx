@@ -31,6 +31,7 @@ import {
   Plus
 } from 'lucide-react';
 import { DateTimeFormatter } from '../utils/dateTimeFormatter';
+import ExportExcelButton from '../components/ExportExcelButton';
 
 export default function TeachersPage() {
   const { showNotification } = useNotification();
@@ -336,13 +337,31 @@ export default function TeachersPage() {
           </div>
         </div>
 
-        <button
-          onClick={handleOpenAddModal}
-          className="flex items-center gap-2 px-5 py-3 bg-primary hover:bg-primary-hover text-white rounded-2xl font-bold shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all text-sm flex-shrink-0"
-        >
-          <UserPlus className="w-5 h-5" />
-          <span>{t('teachers.new_teacher_btn')}</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <ExportExcelButton
+            data={teachers}
+            columns={[
+              { key: 'full_name', header: t('teachers.table_name', 'اسم الأستاذ') },
+              { key: 'phone', header: t('teachers.table_phone', 'رقم الهاتف') },
+              { key: 'email', header: t('teachers.table_email', 'البريد الإلكتروني') },
+              { key: 'specialty', header: t('teachers.table_specialty', 'المادة / التخصص') },
+              { key: 'track_types', header: t('teachers.table_tracks', 'المسارات التعليمية'), transform: (types) => Array.isArray(types) ? types.join('، ') : types || '' },
+              { key: 'bio', header: t('teachers.table_notes', 'نبذة وملاحظات') }
+            ]}
+            filename={`teachers_${selectedYearObj?.label?.replace(/\//g, '_') || 'list'}`}
+            sheetName={t('teachers.title', 'الأساتذة')}
+            label={t('settings.export_excel', 'تصدير إلى Excel')}
+            className="px-4 py-3 rounded-2xl"
+          />
+
+          <button
+            onClick={handleOpenAddModal}
+            className="flex items-center gap-2 px-5 py-3 bg-primary hover:bg-primary-hover text-white rounded-2xl font-bold shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all text-sm flex-shrink-0"
+          >
+            <UserPlus className="w-5 h-5" />
+            <span>{t('teachers.new_teacher_btn')}</span>
+          </button>
+        </div>
       </div>
 
       {/* 2. KPI Summary Cards */}

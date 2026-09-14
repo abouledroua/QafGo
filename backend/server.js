@@ -43,6 +43,7 @@ import { migrateGroupGenderAndUserAccess } from './database/addGroupGenderAndUse
 import { migrateProductsAndSalesTable } from './database/createProductsAndSalesTable.js';
 import { migrateRefundsTable } from './database/createRefundsTable.js';
 import { migrateCashTransactionsTable } from './database/createCashTransactionsTable.js';
+import { startBackupScheduler } from './services/backupScheduler.js';
 
 dotenv.config();
 
@@ -133,6 +134,7 @@ app.listen(PORT, async () => {
     await migrateProductsAndSalesTable();
     await migrateRefundsTable();
     await migrateCashTransactionsTable();
+    startBackupScheduler();
   } catch (err) {
     console.error('Failed to initialize default database rows on startup:', err);
   }

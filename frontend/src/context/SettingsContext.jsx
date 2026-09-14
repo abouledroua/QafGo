@@ -108,6 +108,93 @@ export const SettingsProvider = ({ children }) => {
     }
   };
 
+  const downloadDatabaseBackup = async () => {
+    try {
+      const token = localStorage.getItem('qafgo_token');
+      const res = await api.get('/settings/backup/download', {
+        responseType: 'blob',
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+
+      const blob = new Blob([res], { type: 'application/sql' });
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const dateStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+      const timeStr = `${pad(now.getHours())}${pad(now.getMinutes())}`;
+      link.download = `sauvegarde_${dateStr}_${timeStr}.sql`;
+
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+
+      showNotification(t('settings.backup_download_success', 'تم تنزيل نسخة قاعدة البيانات بنجاح'), 'success');
+      return true;
+    } catch (err) {
+      console.error('Download DB backup error:', err);
+      showNotification(err.message || t('settings.backup_download_error', 'فشل تنزيل نسخة قاعدة البيانات'), 'error');
+      throw err;
+    }
+  };
+
+  const runManualBackupNow = async () => {
+    try {
+      const res = await api.post('/settings/backup/run-now');
+      if (res.success) {
+        showNotification(t('settings.backup_run_success', 'تم حفظ النسخة الاحتياطية بنجاح في المجلد المحدد'), 'success');
+        fetchSettings();
+        return res.result;
+      }
+    } catch (err) {
+      showNotification(err.message || t('settings.backup_run_error', 'فشل إجراء النسخ الاحتياطي'), 'error');
+      throw err;
+    }
+  };
+
+  const verifyFolder = async (folderPath) => {
+    try {
+      const res = await api.post('/settings/backup/verify-folder', { folderPath });
+      return res;
+    } catch (err) {
+      throw err;
+    }
+  };
+
+  const getBackupStatus = async () => {
+    try {
+      const res = await api.get('/settings/backup/status');
+      return res.data;
+    } catch (err) {
+      console.error('getBackupStatus error:', err);
+      return null;
+    }
+  };
+
+  const exploreDirectory = async (folderPath = '') => {
+    try {
+      const url = folderPath 
+        ? `/settings/backup/explore-directory?path=${encodeURIComponent(folderPath)}` 
+        : '/settings/backup/explore-directory';
+      const res = await api.get(url);
+      return res;
+    } catch (err) {
+      throw err;
+    }
+  };
+
+  const createDirectory = async (parentPath, folderName) => {
+    try {
+      const res = await api.post('/settings/backup/create-directory', { parentPath, folderName });
+      return res;
+    } catch (err) {
+      throw err;
+    }
+  };
+
   const currentCurrency = settings?.currency_symbol || (typeof window !== 'undefined' ? localStorage.getItem('qafgo_currency_symbol') : 'د.ج') || 'د.ج';
 
   return (
@@ -118,7 +205,13 @@ export const SettingsProvider = ({ children }) => {
       updateSettings,
       uploadAsset,
       fetchSettings,
-      reloadSettings: fetchSettings
+      reloadSettings: fetchSettings,
+      downloadDatabaseBackup,
+      runManualBackupNow,
+      verifyFolder,
+      getBackupStatus,
+      exploreDirectory,
+      createDirectory
     }}>
       {children}
     </SettingsContext.Provider>
