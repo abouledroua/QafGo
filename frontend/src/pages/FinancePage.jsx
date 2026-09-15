@@ -180,9 +180,15 @@ export default function FinancePage() {
   useEffect(() => {
     if (modalOpen && selectedYearId) {
       api.get(`/students?academic_year_id=${selectedYearId}`).then(res => {
-        if (res.success && res.data.length > 0) {
+        if (res.success && res.data) {
           setStudentsList(res.data);
-          handleSelectStudentInModal(res.data[0]);
+          // Only populate student enrollments if a student was already designated (e.g. via quick pay)
+          if (paymentForm.student_id) {
+            const found = res.data.find(s => s.id == paymentForm.student_id);
+            if (found?.enrollments) {
+              setStudentEnrollments(found.enrollments);
+            }
+          }
         }
       }).catch(console.error);
     }
@@ -206,6 +212,17 @@ export default function FinancePage() {
   };
 
   const handleSelectStudentInModal = (student) => {
+    if (!student) {
+      setPaymentForm(prev => ({
+        ...prev,
+        student_id: '',
+        group_id: '',
+        single_month_fee: 0,
+        amount: ''
+      }));
+      setStudentEnrollments([]);
+      return;
+    }
     const enr = student.enrollments?.[0];
     const singleFee = parseFloat(enr?.monthly_fee || 1500);
     const count = paymentForm.months_count || 1;
@@ -233,6 +250,14 @@ export default function FinancePage() {
 
   const handleSavePayment = async (e) => {
     e.preventDefault();
+    if (!paymentForm.student_id) {
+      showNotification(t('finance.select_student_required', 'يرجى اختيار الطالب أولاً'), 'warning');
+      return;
+    }
+    if (!paymentForm.group_id) {
+      showNotification(t('finance.select_group_required', 'يرجى اختيار الفوج'), 'warning');
+      return;
+    }
     try {
       const res = await api.post('/finance/payments', {
         ...paymentForm,
@@ -288,6 +313,22 @@ export default function FinancePage() {
     setModalOpen(true);
   };
 
+  const openNewPaymentModal = () => {
+    setPaymentForm({
+      student_id: '',
+      group_id: '',
+      months_count: 1,
+      single_month_fee: 1500,
+      amount: '',
+      payment_date: new Date().toISOString().split('T')[0],
+      month_ref: currentMonthStr,
+      payment_status: 'PAID',
+      notes: ''
+    });
+    setStudentEnrollments([]);
+    setModalOpen(true);
+  };
+
   return (
     <div className="space-y-6 animate-fadeIn" dir={dir}>
       
@@ -305,10 +346,10 @@ export default function FinancePage() {
         <div className="flex items-center gap-2.5 flex-wrap self-start md:self-auto">
           <Link
             to="/products"
-            className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-surface-card hover:bg-surface text-text-main border border-border text-sm font-bold shadow-sm transition-all"
+            className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-surface-card hover:bg-surface border border-border text-text-main text-sm font-bold shadow-sm transition-all"
           >
             <ShoppingBag className="w-5 h-5 text-primary" />
-            <span>{t('sidebar.products', 'المتجر والمبيعات')}</span>
+            <span>{t('finance.btn_manage_products', 'متجر ومبيعات المنتجات')}</span>
             {parseFloat(overview?.products?.total_products_debt || 0) > 0 && (
               <span className="px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-600 text-xs font-bold border border-rose-500/20">
                 {parseFloat(overview.products.total_products_debt).toLocaleString()} {t('common.currency')}
@@ -330,7 +371,7 @@ export default function FinancePage() {
 
           <button
             type="button"
-            onClick={() => setModalOpen(true)}
+            onClick={openNewPaymentModal}
             className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-primary hover:bg-primary-hover text-white text-sm font-bold shadow-lg shadow-primary/25 transition-all cursor-pointer"
           >
             <Plus className="w-5 h-5" />
@@ -1300,6 +1341,25 @@ export default function FinancePage() {
 
             <form onSubmit={handleSavePayment} className="space-y-4">
               
+              {/* 1. Student Selection (First field) */}
+              <div>
+                <label className="block text-xs font-bold text-text-main mb-1">{t('finance.select_student')}</label>
+                <select
+                  value={paymentForm.student_id}
+                  onChange={(e) => {
+                    const st = studentsList.find(s => s.id == e.target.value);
+                    handleSelectStudentInModal(st || null);
+                  }}
+                  className="w-full p-2.5 bg-surface border border-border rounded-xl text-xs font-bold text-text-main focus:outline-none focus:border-primary"
+                  required
+                >
+                  <option value="">{t('finance.select_student_placeholder', '-- اختر الطالب من القائمة --')}</option>
+                  {studentsList.map(s => (
+                    <option key={s.id} value={s.id}>{s.full_name} ({s.reg_no})</option>
+                  ))}
+                </select>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-text-main mb-1">{t('finance.payment_type')}</label>
@@ -1406,32 +1466,21 @@ export default function FinancePage() {
                 )}
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-text-main mb-1">{t('finance.select_student')}</label>
-                <select
-                  value={paymentForm.student_id}
-                  onChange={(e) => {
-                    const st = studentsList.find(s => s.id == e.target.value);
-                    if (st) handleSelectStudentInModal(st);
-                  }}
-                  className="w-full p-2.5 bg-surface border border-border rounded-xl text-xs font-bold text-text-main"
-                  required
-                >
-                  {studentsList.map(s => (
-                    <option key={s.id} value={s.id}>{s.full_name} ({s.reg_no})</option>
-                  ))}
-                </select>
-              </div>
-
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-text-main mb-1">{t('finance.select_group')}</label>
                   <select
                     value={paymentForm.group_id}
                     onChange={(e) => handleSelectGroupInModal(e.target.value)}
-                    className="w-full p-2.5 bg-surface border border-border rounded-xl text-xs text-text-main"
+                    className="w-full p-2.5 bg-surface border border-border rounded-xl text-xs text-text-main focus:outline-none focus:border-primary disabled:opacity-50"
                     required
+                    disabled={!paymentForm.student_id}
                   >
+                    <option value="">
+                      {!paymentForm.student_id 
+                        ? t('finance.select_student_first', '-- اختر الطالب أولاً --')
+                        : t('finance.select_group_placeholder', '-- اختر الفوج --')}
+                    </option>
                     {studentEnrollments.map(en => (
                       <option key={en.group_id} value={en.group_id}>{en.group_name}</option>
                     ))}
@@ -1480,7 +1529,8 @@ export default function FinancePage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2 text-xs font-bold text-white bg-primary hover:bg-primary-hover rounded-xl shadow-md"
+                  disabled={!paymentForm.student_id || !paymentForm.group_id}
+                  className="px-6 py-2 text-xs font-bold text-white bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed rounded-xl shadow-md"
                 >
                   {t('finance.save_payment_btn')}
                 </button>

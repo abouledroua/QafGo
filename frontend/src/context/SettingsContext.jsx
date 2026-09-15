@@ -195,6 +195,33 @@ export const SettingsProvider = ({ children }) => {
     }
   };
 
+  const [receiptPaperSize, setReceiptPaperSizeState] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('qafgo_receipt_paper_size');
+      if (saved === 'A5' || saved === 'A4') return saved;
+    }
+    return 'A4';
+  });
+
+  const setReceiptPaperSize = useCallback((size) => {
+    const valid = size === 'A5' ? 'A5' : 'A4';
+    setReceiptPaperSizeState(valid);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('qafgo_receipt_paper_size', valid);
+      window.dispatchEvent(new CustomEvent('receipt-paper-size:updated', { detail: valid }));
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleStorage = (e) => {
+      if (e.key === 'qafgo_receipt_paper_size' && (e.newValue === 'A4' || e.newValue === 'A5')) {
+        setReceiptPaperSizeState(e.newValue);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
   const currentCurrency = settings?.currency_symbol || (typeof window !== 'undefined' ? localStorage.getItem('qafgo_currency_symbol') : 'د.ج') || 'د.ج';
 
   return (
@@ -211,7 +238,9 @@ export const SettingsProvider = ({ children }) => {
       verifyFolder,
       getBackupStatus,
       exploreDirectory,
-      createDirectory
+      createDirectory,
+      receiptPaperSize,
+      setReceiptPaperSize
     }}>
       {children}
     </SettingsContext.Provider>

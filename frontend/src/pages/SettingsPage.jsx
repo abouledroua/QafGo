@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSettings } from '../context/SettingsContext';
 import { useTheme } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
+import { useNotification } from '../context/NotificationContext';
 import LanguageSelector from '../components/LanguageSelector';
 import { 
   Building2, 
@@ -22,6 +23,7 @@ import {
   GraduationCap, 
   Trash2,
   FileText,
+  Printer,
   Globe,
   ShieldCheck,
   Users2,
@@ -47,8 +49,11 @@ export default function SettingsPage() {
     downloadDatabaseBackup,
     runManualBackupNow,
     verifyFolder,
-    getBackupStatus
+    getBackupStatus,
+    receiptPaperSize,
+    setReceiptPaperSize
   } = useSettings();
+  const { showNotification } = useNotification();
   const { themes } = useTheme();
   const { t, isRtl } = useLanguage();
 
@@ -493,6 +498,55 @@ export default function SettingsPage() {
                     placeholder={t('settings.receipt_footer_placeholder')}
                   />
                 </div>
+
+                {/* Receipt Paper Size Selector in Profile Tab */}
+                <div className="pt-2">
+                  <label className="block text-xs font-bold text-text-main mb-2 flex items-center gap-1.5">
+                    <Printer className="w-4 h-4 text-primary" />
+                    <span>{t('settings.receipt_paper_size_title', 'حجم ورق طباعة الوصلات')}</span>
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReceiptPaperSize('A4');
+                        showNotification(t('settings.paper_size_saved', 'تم حفظ قياس ورق الطباعة بنجاح'), 'success');
+                      }}
+                      className={`p-3.5 rounded-xl border text-start transition-all flex items-center justify-between cursor-pointer ${
+                        (receiptPaperSize || 'A4') === 'A4'
+                          ? 'border-primary bg-primary/10 ring-2 ring-primary/30 font-bold text-primary shadow-sm'
+                          : 'border-border bg-surface text-text-main hover:border-primary/40'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span className="font-mono text-xs font-black bg-blue-500/10 text-blue-600 px-2 py-0.5 rounded-md">A4</span>
+                        <span className="text-xs">{t('settings.paper_a4_short', 'قياسي - 210×297 مم')}</span>
+                      </div>
+                      {(receiptPaperSize || 'A4') === 'A4' && <CheckCircle2 className="w-4 h-4 text-primary" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReceiptPaperSize('A5');
+                        showNotification(t('settings.paper_size_saved', 'تم حفظ قياس ورق الطباعة بنجاح'), 'success');
+                      }}
+                      className={`p-3.5 rounded-xl border text-start transition-all flex items-center justify-between cursor-pointer ${
+                        receiptPaperSize === 'A5'
+                          ? 'border-primary bg-primary/10 ring-2 ring-primary/30 font-bold text-primary shadow-sm'
+                          : 'border-border bg-surface text-text-main hover:border-primary/40'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span className="font-mono text-xs font-black bg-emerald-500/10 text-emerald-600 px-2 py-0.5 rounded-md">A5</span>
+                        <span className="text-xs">{t('settings.paper_a5_short', 'مدمج - 148×210 مم')}</span>
+                      </div>
+                      {receiptPaperSize === 'A5' && <CheckCircle2 className="w-4 h-4 text-primary" />}
+                    </button>
+                  </div>
+                  <span className="text-[11px] text-text-muted mt-1.5 block">
+                    {t('settings.receipt_paper_size_hint', 'يحدد حجم الورق التلقائي عند طباعة سندات الدفع والقبض.')}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -577,6 +631,97 @@ export default function SettingsPage() {
                   </span>
                 </div>
 
+              </div>
+            </div>
+
+            {/* Printing & Receipt Paper Size Preferences */}
+            <div className="pt-6 border-t border-border space-y-4">
+              <div className="flex items-center gap-2">
+                <Printer className="w-5 h-5 text-primary" />
+                <h3 className="text-lg font-bold text-text-main">
+                  {t('settings.receipt_paper_size_title', 'حجم ورق طباعة الوصلات والسندات (Receipt Paper Size)')}
+                </h3>
+              </div>
+              <p className="text-xs text-text-muted leading-relaxed">
+                {t('settings.receipt_paper_size_desc', 'اختر حجم الورق الافتراضي لطباعة وصولات وسندات الدفع والقبض (A4 أو A5). يتم حفظ هذا الخيار محلياً على جهازك واعتماده تلقائياً في نافذة الطباعة.')}
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* A4 option */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReceiptPaperSize('A4');
+                    showNotification(t('settings.paper_size_saved', 'تم حفظ قياس ورق الطباعة بنجاح'), 'success');
+                  }}
+                  className={`p-5 rounded-2xl border text-start transition-all relative flex flex-col justify-between cursor-pointer ${
+                    (receiptPaperSize || 'A4') === 'A4'
+                      ? 'border-primary bg-primary/10 ring-2 ring-primary/30 shadow-sm'
+                      : 'border-border bg-surface hover:border-primary/40'
+                  }`}
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-600 flex items-center justify-center font-bold text-sm font-mono border border-blue-500/20">
+                          A4
+                        </div>
+                        <div>
+                          <span className="text-sm font-bold text-text-main block">
+                            {t('settings.paper_a4_title', 'ورق A4 (قياسي / Standard)')}
+                          </span>
+                          <span className="text-[11px] font-mono text-primary font-semibold">
+                            {t('settings.paper_a4_dim', '210 × 297 مم')}
+                          </span>
+                        </div>
+                      </div>
+                      {(receiptPaperSize || 'A4') === 'A4' && (
+                        <CheckCircle2 className="w-5 h-5 text-primary" />
+                      )}
+                    </div>
+                    <p className="text-xs text-text-muted leading-relaxed">
+                      {t('settings.paper_a4_desc', 'طباعة بالحجم القياسي الكامل، مناسبة للأرشفة الرسمية والملفات الإدارية.')}
+                    </p>
+                  </div>
+                </button>
+
+                {/* A5 option */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReceiptPaperSize('A5');
+                    showNotification(t('settings.paper_size_saved', 'تم حفظ قياس ورق الطباعة بنجاح'), 'success');
+                  }}
+                  className={`p-5 rounded-2xl border text-start transition-all relative flex flex-col justify-between cursor-pointer ${
+                    receiptPaperSize === 'A5'
+                      ? 'border-primary bg-primary/10 ring-2 ring-primary/30 shadow-sm'
+                      : 'border-border bg-surface hover:border-primary/40'
+                  }`}
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center font-bold text-sm font-mono border border-emerald-500/20">
+                          A5
+                        </div>
+                        <div>
+                          <span className="text-sm font-bold text-text-main block">
+                            {t('settings.paper_a5_title', 'ورق A5 (مدمج / Compact - نصف صفحة)')}
+                          </span>
+                          <span className="text-[11px] font-mono text-emerald-600 font-semibold">
+                            {t('settings.paper_a5_dim', '148 × 210 مم')}
+                          </span>
+                        </div>
+                      </div>
+                      {receiptPaperSize === 'A5' && (
+                        <CheckCircle2 className="w-5 h-5 text-primary" />
+                      )}
+                    </div>
+                    <p className="text-xs text-text-muted leading-relaxed">
+                      {t('settings.paper_a5_desc', 'طباعة مدمجة موفرة للورق، مثالية للوصولات السريعة وتسليم السندات اليومية لأولياء الأمور.')}
+                    </p>
+                  </div>
+                </button>
               </div>
             </div>
 

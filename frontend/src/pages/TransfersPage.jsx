@@ -39,7 +39,7 @@ export default function TransfersPage() {
     fetchTransfers();
   }, [fetchTransfers]);
 
-  const filteredTransfers = transfers.filter(t => 
+  const filteredTransfers = transfers.filter(t =>
     t.student_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     t.reg_no?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     t.reason?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -47,7 +47,7 @@ export default function TransfersPage() {
 
   return (
     <div className="space-y-6 animate-fadeIn">
-      
+
       {/* Header */}
       <div>
         <h1 className="text-2xl lg:text-3xl font-black text-text-main">
@@ -67,9 +67,8 @@ export default function TransfersPage() {
             placeholder={t('transfers.search_placeholder')}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className={`w-full py-2.5 rounded-xl bg-surface border border-border text-xs text-text-main focus:outline-none focus:ring-2 focus:ring-primary ${
-              isRtl ? 'pr-10 pl-4' : 'pl-10 pr-4'
-            }`}
+            className={`w-full py-2.5 rounded-xl bg-surface border border-border text-xs text-text-main focus:outline-none focus:ring-2 focus:ring-primary ${isRtl ? 'pr-10 pl-4' : 'pl-10 pr-4'
+              }`}
           />
         </div>
 
@@ -83,9 +82,9 @@ export default function TransfersPage() {
               { header: t('transfers.table_from_group', 'من فوج'), key: 'from_group_name', width: 18 },
               { header: t('transfers.table_to_group', 'إلى فوج'), key: 'to_group_name', width: 18 },
               { header: t('transfers.table_reason', 'السبب'), key: 'reason', width: 25 },
-              { 
-                header: t('transfers.table_date', 'التاريخ'), 
-                key: 'transferred_at', 
+              {
+                header: t('transfers.table_date', 'التاريخ'),
+                key: 'transferred_at',
                 width: 15,
                 formatter: (val) => DateTimeFormatter.formatDate(val)
               }
@@ -167,4 +166,3 @@ export default function TransfersPage() {
     </div>
   );
 }
-

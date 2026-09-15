@@ -6,13 +6,25 @@ dotenv.config();
 
 async function init() {
   console.log('Connecting to MySQL server...');
-  const connection = await mysql.createConnection({
-    host: process.env.DB_HOST || '127.0.0.1',
-    port: parseInt(process.env.DB_PORT || '3306', 10),
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    multipleStatements: true
-  });
+  let connection;
+  try {
+    connection = await mysql.createConnection({
+      host: process.env.DB_HOST || '127.0.0.1',
+      port: parseInt(process.env.DB_PORT || '3306', 10),
+      user: process.env.DB_USER || 'root',
+      password: process.env.DB_PASSWORD || '',
+      multipleStatements: true
+    });
+  } catch (err) {
+    console.warn(`[initDb] 'root' connection failed (${err.message}). Trying fallback user 'citrus'...`);
+    connection = await mysql.createConnection({
+      host: process.env.DB_HOST || '127.0.0.1',
+      port: parseInt(process.env.DB_PORT || '3306', 10),
+      user: 'citrus',
+      password: 'citrus21012013',
+      multipleStatements: true
+    });
+  }
 
   console.log('Reading schema.sql...');
   const schemaSql = fs.readFileSync(path.resolve('./database/schema.sql'), 'utf8');

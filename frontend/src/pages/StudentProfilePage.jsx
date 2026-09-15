@@ -43,7 +43,7 @@ import ReceiptModal from '../components/ReceiptModal';
 import SaleReceiptModal from '../components/SaleReceiptModal';
 import RefundModal from '../components/RefundModal';
 import PreschoolBadgesPrintModal from '../components/PreschoolBadgesPrintModal';
-import { DateTimeFormatter } from '../utils/dateTimeFormatter';
+import { DateTimeFormatter, getConsecutiveMonths } from '../utils/dateTimeFormatter';
 
 export default function StudentProfilePage() {
   const { id } = useParams();
@@ -72,6 +72,20 @@ export default function StudentProfilePage() {
   const [selectedEnrollmentForTransfer, setSelectedEnrollmentForTransfer] = useState(null);
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
   const [selectedPaymentForReceipt, setSelectedPaymentForReceipt] = useState(null);
+
+  // Group Payment Modal State (Pay group debt/tuition directly from Enrollments)
+  const [payEnrollmentModalOpen, setPayEnrollmentModalOpen] = useState(false);
+  const [selectedEnrollmentForPayment, setSelectedEnrollmentForPayment] = useState(null);
+  const [enrollmentPaymentForm, setEnrollmentPaymentForm] = useState({
+    months_count: 1,
+    single_month_fee: 0,
+    amount: '',
+    payment_date: new Date().toISOString().split('T')[0],
+    month_ref: new Date().toISOString().slice(0, 7),
+    payment_status: 'PAID',
+    notes: ''
+  });
+  const [savingEnrollmentPayment, setSavingEnrollmentPayment] = useState(false);
 
   // Stop, Resume & Refund State
   const [refundModalOpen, setRefundModalOpen] = useState(false);
@@ -218,6 +232,11 @@ export default function StudentProfilePage() {
       }).catch(console.error);
     }
   }, [sellProductModalOpen]);
+
+  const enrollmentCoveredMonths = useMemo(() => {
+    if (!enrollmentPaymentForm.month_ref) return [];
+    return getConsecutiveMonths(enrollmentPaymentForm.month_ref, enrollmentPaymentForm.months_count || 1);
+  }, [enrollmentPaymentForm.month_ref, enrollmentPaymentForm.months_count]);
 
   if (loading) {
     return (
@@ -397,6 +416,91 @@ export default function StudentProfilePage() {
       notes: refundData.notes
     });
     setReceiptModalOpen(true);
+  };
+
+  const handleOpenPayEnrollment = (en, unpaidItem = null) => {
+    let fee = parseFloat(en.monthly_fee || 0);
+    if (en.discount_type === 'PERCENTAGE') {
+      fee -= (fee * parseFloat(en.discount_value || 0) / 100);
+    } else if (en.discount_type === 'FIXED_AMOUNT') {
+      fee = Math.max(0, fee - parseFloat(en.discount_value || 0));
+    }
+    fee = Math.max(0, Math.round(fee * 100) / 100);
+
+    const targetMonth = unpaidItem?.month_ref || new Date().toISOString().slice(0, 7);
+    setSelectedEnrollmentForPayment(en);
+    setEnrollmentPaymentForm({
+      months_count: 1,
+      single_month_fee: fee,
+      amount: fee,
+      payment_date: new Date().toISOString().split('T')[0],
+      month_ref: targetMonth,
+      payment_status: 'PAID',
+      notes: `${t('student_profile.pay_group_due_btn', 'دفع اشتراك')} - ${en.group_name}`
+    });
+    setPayEnrollmentModalOpen(true);
+  };
+
+  const handleEnrollmentMonthsCountChange = (countVal) => {
+    const safeCount = Math.max(1, parseInt(countVal, 10) || 1);
+    setEnrollmentPaymentForm(prev => {
+      const isExempt = prev.payment_status === 'EXEMPTED';
+      const baseFee = prev.single_month_fee || 0;
+      return {
+        ...prev,
+        months_count: safeCount,
+        amount: isExempt ? 0 : Math.round(baseFee * safeCount * 100) / 100
+      };
+    });
+  };
+
+  const handleSaveEnrollmentPayment = async (e) => {
+    e.preventDefault();
+    if (!selectedEnrollmentForPayment || !student) return;
+
+    try {
+      setSavingEnrollmentPayment(true);
+      const payload = {
+        academic_year_id: selectedEnrollmentForPayment.academic_year_id,
+        student_id: student.id,
+        group_id: selectedEnrollmentForPayment.group_id,
+        amount: enrollmentPaymentForm.payment_status === 'EXEMPTED' ? 0 : parseFloat(enrollmentPaymentForm.amount || 0),
+        months_count: parseInt(enrollmentPaymentForm.months_count, 10) || 1,
+        payment_date: enrollmentPaymentForm.payment_date,
+        month_ref: enrollmentPaymentForm.month_ref,
+        payment_status: enrollmentPaymentForm.payment_status,
+        notes: enrollmentPaymentForm.notes
+      };
+
+      const res = await api.post('/finance/payments', payload);
+      if (res.success) {
+        showNotification(res.message || t('student_profile.group_payment_recorded_success', 'تم تسجيل وصل الدفع بنجاح'), 'success');
+        setPayEnrollmentModalOpen(false);
+        await fetchDossier();
+
+        if (res.data?.receipt_no) {
+          setSelectedPaymentForReceipt({
+            id: res.data.id,
+            receipt_no: res.data.receipt_no,
+            amount: res.data.amount,
+            months_count: res.data.months_count || enrollmentPaymentForm.months_count || 1,
+            payment_date: enrollmentPaymentForm.payment_date,
+            month_ref: res.data.month_ref || enrollmentPaymentForm.month_ref,
+            payment_status: enrollmentPaymentForm.payment_status,
+            student_name: student.full_name,
+            reg_no: student.reg_no,
+            group_name: selectedEnrollmentForPayment.group_name,
+            academic_year_label: selectedEnrollmentForPayment.academic_year_label,
+            notes: enrollmentPaymentForm.notes
+          });
+          setReceiptModalOpen(true);
+        }
+      }
+    } catch (err) {
+      showNotification(err.message || t('common.error'), 'error');
+    } finally {
+      setSavingEnrollmentPayment(false);
+    }
   };
 
   const handleOpenSellModal = () => {
@@ -922,6 +1026,9 @@ export default function StudentProfilePage() {
               const isActive = en.status === 'ACTIVE';
               const isTransferred = en.status === 'TRANSFERRED';
               const isDropped = en.status === 'DROPPED';
+              const unpaidItem = summary?.unpaidEnrollments?.find(u => Number(u.group_id) === Number(en.group_id));
+              const hasDebt = Boolean(unpaidItem);
+              const canPay = (!en.is_free && en.discount_type !== 'FULL_EXEMPTION') && (isActive || hasDebt);
 
               return (
                 <div key={en.id} className="p-5 bg-surface-card border border-border rounded-2xl shadow-sm space-y-4">
@@ -966,10 +1073,40 @@ export default function StudentProfilePage() {
                     <div className="text-primary font-bold">
                       {en.discount_type === 'FULL_EXEMPTION' ? t('student_profile.exemption_full') : en.is_free ? t('student_profile.free_group') : t('student_profile.monthly_fee', { fee: parseFloat(en.monthly_fee).toLocaleString() })}
                     </div>
+
+                    {/* Unpaid Debt Banner if dues exist for this group */}
+                    {unpaidItem && (
+                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 mt-2">
+                        <div className="flex items-center gap-1.5 text-xs font-bold">
+                          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span>{t('student_profile.unpaid_group_debt', 'مستحقات غير مسددة:')} ({unpaidItem.month_ref})</span>
+                        </div>
+                        <span className="font-mono font-black text-xs">
+                          {parseFloat(unpaidItem.monthly_fee).toLocaleString()} {currency}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Actions row: Badge, Transfer, Stop, Resume */}
+                  {/* Actions row: Pay, Badge, Transfer, Stop, Resume */}
                   <div className="pt-3 border-t border-border flex items-center gap-2 flex-wrap">
+                    {/* Direct Pay Debt / Pay Tuition button */}
+                    {canPay && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenPayEnrollment(en, unpaidItem)}
+                        className={`flex-1 min-w-[90px] flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm ${
+                          hasDebt
+                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20 ring-2 ring-emerald-500/30'
+                            : 'bg-emerald-500/10 hover:bg-emerald-600 hover:text-white text-emerald-700 dark:text-emerald-300 border border-emerald-500/20'
+                        }`}
+                        title={hasDebt ? t('student_profile.pay_debt_btn', 'سداد الدين') : t('student_profile.pay_group_due_btn', 'دفع الاشتراك')}
+                      >
+                        <Wallet className="w-3.5 h-3.5" />
+                        <span>{hasDebt ? t('student_profile.pay_debt_btn', 'سداد الدين') : t('student_profile.pay_group_due_btn', 'دفع الاشتراك')}</span>
+                      </button>
+                    )}
+
                     {/* Badge Print button */}
                     <button
                       type="button"
@@ -1006,7 +1143,7 @@ export default function StudentProfilePage() {
                         title={t('group_details.stop_student_btn_title', 'إيقاف الطالب عن الفوج')}
                       >
                         <UserX className="w-3.5 h-3.5" />
-                        <span>{t('group_details.stop_student_btn', 'إيقاف')}</span>
+                        <span>{t('group_details.stop_student_btn', 'إيقاف الطالب')}</span>
                       </button>
                     )}
 
@@ -1681,6 +1818,227 @@ export default function StudentProfilePage() {
           sourceGroupId={selectedEnrollmentForTransfer?.group_id}
           onSuccess={fetchDossier}
         />
+      )}
+
+      {/* Pay Group Debt / Tuition Modal */}
+      {payEnrollmentModalOpen && selectedEnrollmentForPayment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn" dir={dir}>
+          <div className="w-full max-w-lg bg-surface-card border border-border rounded-3xl shadow-2xl overflow-hidden p-6 space-y-4">
+            
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600">
+                  <Wallet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-text-main">
+                    {enrollmentPaymentForm.payment_status === 'EXEMPTED'
+                      ? t('finance.receipt_title_exempt', 'وصل إعفاء معتمد')
+                      : t('student_profile.pay_group_modal_title', 'تسديد اشتراك / مستحقات الفوج')}
+                  </h3>
+                  <p className="text-xs text-text-muted">
+                    {student.full_name} ({student.reg_no})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPayEnrollmentModalOpen(false)}
+                className="p-2 text-text-muted hover:text-text-main rounded-xl hover:bg-surface transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Group Summary Box */}
+            <div className="p-3.5 bg-surface rounded-2xl border border-border/80 flex items-center justify-between">
+              <div>
+                <h4 className="font-extrabold text-sm text-text-main">{selectedEnrollmentForPayment.group_name}</h4>
+                <p className="text-xs text-text-muted mt-0.5">
+                  {selectedEnrollmentForPayment.teacher_name || t('student_profile.unspecified')} • {selectedEnrollmentForPayment.academic_year_label}
+                </p>
+              </div>
+              <div className="text-end">
+                <span className="text-[10px] text-text-muted block">{t('finance.single_month_fee_label', 'اشتراك الشهر:')}</span>
+                <span className="text-xs font-mono font-bold text-primary">
+                  {parseFloat(enrollmentPaymentForm.single_month_fee || 0).toLocaleString()} {currency}
+                </span>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveEnrollmentPayment} className="space-y-4">
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-text-main mb-1">{t('finance.payment_type', 'طبيعة الوصل')}</label>
+                  <select
+                    value={enrollmentPaymentForm.payment_status}
+                    onChange={(e) => {
+                      const st = e.target.value;
+                      setEnrollmentPaymentForm(prev => ({
+                        ...prev,
+                        payment_status: st,
+                        amount: st === 'EXEMPTED' ? 0 : Math.round((prev.single_month_fee || 0) * (prev.months_count || 1) * 100) / 100
+                      }));
+                    }}
+                    className="w-full p-2.5 bg-surface border border-border rounded-xl text-xs font-bold text-text-main"
+                  >
+                    <option value="PAID">{t('finance.type_regular', 'دفع اشتراك شهري عادي')}</option>
+                    <option value="EXEMPTED">{t('finance.type_exemption', 'وصل إعفاء كامل 100% معتمد')}</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-text-main mb-1">{t('finance.month_ref_start', 'شهر البداية')}</label>
+                  <input
+                    type="month"
+                    value={enrollmentPaymentForm.month_ref}
+                    onChange={(e) => setEnrollmentPaymentForm(prev => ({ ...prev, month_ref: e.target.value }))}
+                    className="w-full p-2.5 bg-surface border border-border rounded-xl text-xs font-bold text-text-main font-mono"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Multi-month Selection */}
+              <div className="p-3 bg-surface rounded-2xl border border-border/80 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-text-main flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-primary" />
+                    <span>{t('finance.months_count_label', 'عدد الأشهر المراد دفعها')}</span>
+                  </label>
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                    {enrollmentPaymentForm.months_count > 1 
+                      ? t('finance.months_count_option', { count: enrollmentPaymentForm.months_count }, `${enrollmentPaymentForm.months_count} أشهر`) 
+                      : t('finance.single_month_label', 'شهر واحد')}
+                  </span>
+                </div>
+
+                {/* Preset Pills */}
+                <div className="grid grid-cols-6 gap-1.5">
+                  {[1, 2, 3, 6, 9, 12].map(cnt => {
+                    const isSelected = (parseInt(enrollmentPaymentForm.months_count, 10) || 1) === cnt;
+                    return (
+                      <button
+                        key={cnt}
+                        type="button"
+                        onClick={() => handleEnrollmentMonthsCountChange(cnt)}
+                        className={`py-1.5 px-1 rounded-xl text-xs font-bold transition-all border text-center cursor-pointer ${
+                          isSelected
+                            ? 'bg-primary text-white border-primary shadow-sm ring-2 ring-primary/20'
+                            : 'bg-surface-card hover:bg-surface-hover text-text-muted border-border hover:border-border-hover'
+                        }`}
+                      >
+                        {cnt === 1 ? t('finance.preset_one_month', isRtl ? '1 (افتراضي)' : '1 (def)') : cnt}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Stepper Input */}
+                <div className="flex items-center gap-2 pt-0.5">
+                  <input
+                    type="number"
+                    min="1"
+                    max="24"
+                    value={enrollmentPaymentForm.months_count || 1}
+                    onChange={(e) => handleEnrollmentMonthsCountChange(e.target.value)}
+                    className="w-24 p-2 bg-surface-card border border-border rounded-xl text-xs font-bold text-text-main font-mono text-center focus:outline-none focus:border-primary"
+                  />
+                  <span className="text-xs font-medium text-text-muted">
+                    {enrollmentPaymentForm.months_count > 1 ? t('finance.months_unit', 'أشهر متتالية') : t('finance.month_unit', 'شهر واحد')}
+                  </span>
+                </div>
+
+                {/* Covered Months Preview */}
+                {enrollmentCoveredMonths.length > 0 && (
+                  <div className="pt-2 border-t border-border/60">
+                    <div className="text-[11px] text-text-muted mb-1.5 flex items-center justify-between">
+                      <span className="font-medium">{t('finance.covered_period_label', 'الفترة المغطاة:')}</span>
+                      <span className="font-mono font-bold text-primary">
+                        {enrollmentCoveredMonths[0]} → {enrollmentCoveredMonths[enrollmentCoveredMonths.length - 1]}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {enrollmentCoveredMonths.map((m, idx) => (
+                        <span
+                          key={m}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold bg-primary/10 text-primary border border-primary/20"
+                        >
+                          <span className="opacity-60">#{idx + 1}</span>
+                          <span>{m}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-text-main mb-1">
+                    {t('finance.payment_amount', 'المبلغ الإجمالي')} ({currency})
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={enrollmentPaymentForm.payment_status === 'EXEMPTED' ? 0 : enrollmentPaymentForm.amount}
+                    onChange={(e) => setEnrollmentPaymentForm(prev => ({ ...prev, amount: e.target.value }))}
+                    disabled={enrollmentPaymentForm.payment_status === 'EXEMPTED'}
+                    className="w-full p-2.5 bg-surface border border-border rounded-xl text-xs font-bold text-text-main font-mono disabled:opacity-50"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-text-main mb-1">{t('finance.payment_date', 'تاريخ التسجيل')}</label>
+                  <input
+                    type="date"
+                    value={enrollmentPaymentForm.payment_date}
+                    onChange={(e) => setEnrollmentPaymentForm(prev => ({ ...prev, payment_date: e.target.value }))}
+                    className="w-full p-2.5 bg-surface border border-border rounded-xl text-xs font-bold text-text-main font-mono"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-text-main mb-1">{t('finance.payment_notes', 'ملاحظات إضافية')}</label>
+                <input
+                  type="text"
+                  value={enrollmentPaymentForm.notes}
+                  onChange={(e) => setEnrollmentPaymentForm(prev => ({ ...prev, notes: e.target.value }))}
+                  placeholder={t('finance.notes_placeholder', 'ملاحظات تظهر على الوصل')}
+                  className="w-full p-2.5 bg-surface border border-border rounded-xl text-xs text-text-main"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => setPayEnrollmentModalOpen(false)}
+                  className="px-4 py-2 bg-surface hover:bg-surface-hover text-text-muted text-xs font-bold rounded-xl border border-border transition-colors cursor-pointer"
+                >
+                  {t('common.cancel', 'إلغاء')}
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEnrollmentPayment}
+                  className="flex items-center gap-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {savingEnrollmentPayment ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Printer className="w-4 h-4" />
+                  )}
+                  <span>{t('finance.confirm_and_print', 'تسجيل وطباعة الوصل')}</span>
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
       )}
 
       {/* Receipt Modal */}

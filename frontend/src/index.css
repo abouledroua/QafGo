@@ -190,7 +190,35 @@ h1, h2, h3, h4, h5, h6 {
 
   @page {
     size: A4 portrait;
-    margin: 8mm 8mm 8mm 8mm;
+    margin: 8mm;
+  }
+
+  @page page-a4 {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+
+  @page page-a5 {
+    size: A5 portrait;
+    margin: 4mm;
+  }
+
+  body.print-paper-a4 {
+    page: page-a4;
+  }
+
+  body.print-paper-a5 {
+    page: page-a5;
+  }
+
+  /* Compact A5 receipt styles */
+  body.print-paper-a5 .print-receipt-card {
+    max-width: 140mm !important;
+    margin: 0 auto !important;
+  }
+
+  body.print-paper-a5 .receipt-a5-body {
+    padding: 8px !important;
   }
 
   body.print-landscape-mode {

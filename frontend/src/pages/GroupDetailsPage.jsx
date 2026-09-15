@@ -1698,7 +1698,7 @@ export default function GroupDetailsPage() {
                                 title={t('group_details.stop_student_btn_title', 'إيقاف الطالب عن الفوج')}
                               >
                                 <UserX className="w-3.5 h-3.5" />
-                                <span>{t('group_details.stop_student_btn', 'إيقاف')}</span>
+                                <span>{t('group_details.stop_student_btn', 'إيقاف الطالب')}</span>
                               </button>
                             )}
 

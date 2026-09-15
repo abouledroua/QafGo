@@ -6,13 +6,25 @@ dotenv.config();
 async function seed() {
   console.log('Starting seed process for QafGo database...');
 
-  const connection = await mysql.createConnection({
-    host: process.env.DB_HOST || '127.0.0.1',
-    port: parseInt(process.env.DB_PORT || '3306', 10),
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'qafgo_db'
-  });
+  let connection;
+  try {
+    connection = await mysql.createConnection({
+      host: process.env.DB_HOST || '127.0.0.1',
+      port: parseInt(process.env.DB_PORT || '3306', 10),
+      user: process.env.DB_USER || 'root',
+      password: process.env.DB_PASSWORD || '',
+      database: process.env.DB_NAME || 'qafgo_db'
+    });
+  } catch (err) {
+    console.warn(`[seed] 'root' connection failed (${err.message}). Trying fallback user 'citrus'...`);
+    connection = await mysql.createConnection({
+      host: process.env.DB_HOST || '127.0.0.1',
+      port: parseInt(process.env.DB_PORT || '3306', 10),
+      user: 'citrus',
+      password: 'citrus21012013',
+      database: process.env.DB_NAME || 'qafgo_db'
+    });
+  }
 
   // Clear existing records in reverse dependency order
   console.log('Clearing existing data...');

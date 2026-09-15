@@ -19,8 +19,37 @@ export const SidebarProvider = ({ children }) => {
     return true;
   });
 
-  // Desktop compact / icon-only mode toggle (e.g. w-20 vs w-64)
+  // Desktop compact / icon-only mode toggle (e.g. w-20 vs dynamic width)
   const [isCollapsed, setIsCollapsed] = useState(false);
+
+  // Dynamic custom width for desktop expanded mode (persisted in localStorage)
+  const [customWidth, setCustomWidth] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('sidebar_custom_width');
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed >= 200 && parsed <= 450) {
+          return parsed;
+        }
+      }
+    }
+    return 260; // default 260px (around w-64)
+  });
+
+  const updateCustomWidth = (newWidth) => {
+    const clamped = Math.min(450, Math.max(200, Math.round(newWidth)));
+    setCustomWidth(clamped);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('sidebar_custom_width', clamped.toString());
+    }
+  };
+
+  const resetCustomWidth = () => {
+    setCustomWidth(260);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('sidebar_custom_width');
+    }
+  };
 
   // Monitor screen resize & auto-hide on small screens
   useEffect(() => {
@@ -73,6 +102,9 @@ export const SidebarProvider = ({ children }) => {
         setIsOpen,
         isCollapsed,
         setIsCollapsed,
+        customWidth,
+        setCustomWidth: updateCustomWidth,
+        resetCustomWidth,
         isMobile,
         toggleSidebar,
         toggleCollapsed,

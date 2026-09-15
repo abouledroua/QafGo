@@ -6,6 +6,8 @@ import {
   Users, 
   User, 
   Baby, 
+  BookOpen,
+  GraduationCap,
   Phone, 
   Calendar, 
   Award, 
@@ -35,7 +37,60 @@ export default function PreschoolBadgesPrintModal({
   const [selectedStudentIds, setSelectedStudentIds] = useState([]);
   const [activeOnly, setActiveOnly] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [badgeTheme, setBadgeTheme] = useState('PLAYFUL'); // 'PLAYFUL' | 'CLASSIC' | 'ELEGANT'
+  
+  // Detect educational track type
+  const trackType = useMemo(() => {
+    if (group?.track_type) return group.track_type;
+    if (singleStudent?.track_type) return singleStudent.track_type;
+    const name = (group?.name || group?.group_name || singleStudent?.group_name || '').toLowerCase();
+    if (name.includes('تحضير') || name.includes('روض') || name.includes('براعم') || name.includes('preschool')) {
+      return 'PRESCHOOL';
+    }
+    if (name.includes('دعم') || name.includes('تقوية') || name.includes('soutien') || name.includes('tutoring')) {
+      return 'TUTORING';
+    }
+    return 'HALAQA';
+  }, [group, singleStudent]);
+
+  const isHalaqa = trackType === 'HALAQA';
+  const isTutoring = trackType === 'TUTORING';
+  const isPreschool = trackType === 'PRESCHOOL';
+
+  // Modal Title
+  const modalTitle = isHalaqa 
+    ? t('tracks.print_halaqa_badges_title', 'طباعة بطاقات شارات طلبة التحفيظ القرآني')
+    : isTutoring 
+    ? t('tracks.print_tutoring_badges_title', 'طباعة بطاقات شارات طلبة دروس الدعم')
+    : t('preschool.print_badges_modal_title', 'طباعة شارات أطفال التحضيري');
+
+  // Badge Card Subtitle
+  const badgeSubtitle = isHalaqa
+    ? t('tracks.track_quran_badge_subtitle', 'حلقات تحفيظ القرآن الكريم والعلوم الشرعية')
+    : isTutoring
+    ? t('tracks.track_tutoring_badge_subtitle', 'قسم دروس الدعم والتقوية المدرسية')
+    : t('preschool.badge_header_subtitle', 'قسم التعليم المبكر والتحضيري');
+
+  // Watermark on printed sheets
+  const watermarkText = isHalaqa
+    ? t('tracks.official_badge_watermark_halaqa', 'بطاقة تعريف مدرسية معتمدة • قسم تحفيظ القرآن الكريم')
+    : isTutoring
+    ? t('tracks.official_badge_watermark_tutoring', 'بطاقة تعريف مدرسية معتمدة • قسم دروس الدعم والتقوية')
+    : t('preschool.official_badge_watermark', 'بطاقة تعريف مدرسية معتمدة • قسم التعليم المبكر والتحضيري');
+
+  const TrackIcon = isHalaqa ? BookOpen : isTutoring ? GraduationCap : Baby;
+
+  const [badgeTheme, setBadgeTheme] = useState(() => {
+    if (group?.track_type === 'HALAQA') return 'ELEGANT';
+    if (group?.track_type === 'TUTORING') return 'CLASSIC';
+    return 'PLAYFUL';
+  });
+
+  useEffect(() => {
+    if (trackType === 'HALAQA') setBadgeTheme('ELEGANT');
+    else if (trackType === 'TUTORING') setBadgeTheme('CLASSIC');
+    else setBadgeTheme('PLAYFUL');
+  }, [trackType]);
+
   const [printDate, setPrintDate] = useState('');
 
   const groupName = group?.name || group?.group_name || singleStudent?.group_name || t('preschool.general_badge', 'شارة التلميذ');
@@ -145,14 +200,26 @@ export default function PreschoolBadgesPrintModal({
         <div className="no-print p-4 sm:p-5 border-b border-slate-200 bg-slate-50 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
-              <div className="p-2.5 rounded-2xl bg-purple-600/10 text-purple-600 border border-purple-600/20">
-                <Baby className="w-5 h-5" />
+              <div className={`p-2.5 rounded-2xl border ${
+                isHalaqa 
+                  ? 'bg-emerald-600/10 text-emerald-600 border-emerald-600/20' 
+                  : isTutoring 
+                  ? 'bg-blue-600/10 text-blue-600 border-blue-600/20' 
+                  : 'bg-purple-600/10 text-purple-600 border-purple-600/20'
+              }`}>
+                <TrackIcon className="w-5 h-5" />
               </div>
               <div>
                 <h3 className="text-base font-black text-slate-800 flex items-center gap-2">
-                  <span>{t('preschool.print_badges_modal_title', 'طباعة شارات أطفال التحضيري')}</span>
+                  <span>{modalTitle}</span>
                   {groupName && (
-                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-bold border border-purple-200">
+                    <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${
+                      isHalaqa 
+                        ? 'bg-emerald-100 text-emerald-700 border-emerald-200' 
+                        : isTutoring 
+                        ? 'bg-blue-100 text-blue-700 border-blue-200' 
+                        : 'bg-purple-100 text-purple-700 border-purple-200'
+                    }`}>
                       {groupName}
                     </span>
                   )}
@@ -171,7 +238,13 @@ export default function PreschoolBadgesPrintModal({
                 type="button"
                 onClick={handlePrint}
                 disabled={studentsToPrint.length === 0}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-xs font-black shadow-lg shadow-purple-600/25 transition-all cursor-pointer"
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl disabled:opacity-50 text-white text-xs font-black shadow-lg transition-all cursor-pointer ${
+                  isHalaqa 
+                    ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/25' 
+                    : isTutoring 
+                    ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/25' 
+                    : 'bg-purple-600 hover:bg-purple-700 shadow-purple-600/25'
+                }`}
               >
                 <Printer className="w-4 h-4" />
                 <span>{t('preschool.print_now_btn', 'طباعة الشارات الآن')} ({studentsToPrint.length})</span>
@@ -294,10 +367,10 @@ export default function PreschoolBadgesPrintModal({
                 const isElegant = badgeTheme === 'ELEGANT';
 
                 const headerBg = isPlayful 
-                  ? 'bg-gradient-to-r from-purple-600 via-pink-600 to-amber-500' 
+                  ? 'bg-purple-600' 
                   : isClassic 
-                  ? 'bg-gradient-to-r from-blue-700 to-indigo-800' 
-                  : 'bg-gradient-to-r from-emerald-600 to-teal-700';
+                  ? 'bg-blue-700' 
+                  : 'bg-emerald-600';
 
                 const accentColor = isPlayful ? 'text-purple-700' : isClassic ? 'text-blue-700' : 'text-emerald-700';
                 const badgeBorder = isPlayful ? 'border-purple-200' : isClassic ? 'border-blue-200' : 'border-emerald-200';
@@ -324,31 +397,34 @@ export default function PreschoolBadgesPrintModal({
                       <div className={`badge-card rounded-xl overflow-hidden border ${badgeBorder} bg-white flex flex-col justify-between h-[230px] print:h-[220px]`}>
                         
                         {/* 1. Header Banner */}
-                        <div className={`${headerBg} text-white p-2.5 px-3 flex items-center justify-between shadow-xs`}>
-                          <div className="flex items-center gap-2">
+                        <div className={`${headerBg} text-white p-2.5 px-3 flex items-center justify-between gap-2 shadow-xs`}>
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
                             {settings?.logo_url ? (
                               <img 
                                 src={settings.logo_url} 
                                 alt={settings.school_name || 'Logo'} 
-                                className="w-7 h-7 rounded-full bg-white/20 p-0.5 object-contain"
+                                className="w-7 h-7 rounded-full bg-white/20 p-0.5 object-contain shrink-0"
                               />
                             ) : (
-                              <div className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center font-bold text-xs">
-                                <Baby className="w-4 h-4 text-white" />
+                              <div className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center font-bold text-xs shrink-0">
+                                <TrackIcon className="w-4 h-4 text-white" />
                               </div>
                             )}
-                            <div className="leading-tight">
-                              <h4 className="text-xs font-black tracking-wide truncate max-w-[180px]">
+                            <div className="leading-tight flex-1 min-w-0">
+                              <h4 
+                                className="text-[11px] sm:text-xs font-black tracking-wide leading-snug break-words"
+                                title={settings?.school_name || t('preschool.default_school_name', 'المؤسسة التعليمية')}
+                              >
                                 {settings?.school_name || t('preschool.default_school_name', 'المؤسسة التعليمية')}
                               </h4>
-                              <p className="text-[9px] font-bold text-white/80">
-                                {t('preschool.badge_header_subtitle', 'قسم التعليم المبكر والتحضيري')}
+                              <p className="text-[8.5px] font-bold text-white/85 truncate mt-0.5">
+                                {badgeSubtitle}
                               </p>
                             </div>
                           </div>
 
-                          <div className="text-end">
-                            <span className="inline-block px-2 py-0.5 rounded-md bg-white/20 backdrop-blur-xs text-[9px] font-black tracking-wider">
+                          <div className="text-end shrink-0">
+                            <span className="inline-block px-2 py-0.5 rounded-md bg-white/20 backdrop-blur-xs text-[9px] font-black tracking-wider whitespace-nowrap">
                               {group?.academic_year_label || settings?.active_year_label || '2026-2027'}
                             </span>
                           </div>
@@ -368,7 +444,7 @@ export default function PreschoolBadgesPrintModal({
                                 />
                               ) : (
                                 <div className="flex flex-col items-center justify-center text-slate-400 p-1 text-center w-full h-full">
-                                  <Baby className={`w-9 h-9 ${accentColor} opacity-70 mb-0.5`} />
+                                  <TrackIcon className={`w-9 h-9 ${accentColor} opacity-70 mb-0.5`} />
                                   <span className="text-[8px] font-bold text-slate-400">{t('students.photo', 'صورة')}</span>
                                 </div>
                               )}
@@ -430,12 +506,9 @@ export default function PreschoolBadgesPrintModal({
 
                         {/* 3. Badge Footer Strip */}
                         <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-[9px] text-slate-500 font-bold">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-slate-400">{t('preschool.teacher_label', 'المربية:')}</span>
-                            <span className="text-slate-700 font-bold truncate max-w-[120px]">
-                              {group?.teacher_name || settings?.school_name || '.....................'}
-                            </span>
-                          </div>
+                          <span className="text-slate-400 font-medium">
+                            {t('preschool.official_badge_tag', 'بطاقة مدرسية معتمدة')}
+                          </span>
 
                           {/* Simulated mini barcode */}
                           <div className="flex items-center gap-0.5 opacity-65 h-3.5" title={student.reg_no}>
@@ -460,7 +533,7 @@ export default function PreschoolBadgesPrintModal({
 
           {/* Bottom Official Stamp & Generation Timestamp in Print Mode */}
           <div className="hidden print:flex items-center justify-between text-[9px] text-slate-400 pt-3 mt-4 border-t border-slate-200">
-            <span>{t('preschool.official_badge_watermark', 'بطاقة تعريف مدرسية معتمدة • قسم التعليم المبكر والتحضيري')}</span>
+            <span>{watermarkText}</span>
             <span className="font-mono" dir="ltr">{printDate}</span>
           </div>
 

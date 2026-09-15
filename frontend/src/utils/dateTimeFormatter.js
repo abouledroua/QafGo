@@ -223,6 +223,76 @@ export class DateTimeFormatter {
     return months;
   }
 
+  /**
+   * Format a 'YYYY-MM' reference string into full month name in letters with year.
+   * e.g. '2026-09' -> 'سبتمبر 2026' (ar) / 'September 2026' (en) / 'Septembre 2026' (fr)
+   * Also supports ranges like '2026-09 → 2026-11' or startMonth with count.
+   * 
+   * @param {string} monthRef e.g. '2026-09' or '2026-09 → 2026-11'
+   * @param {string} lang 'ar' | 'en' | 'fr'
+   * @param {number} [count=1] optional months count
+   * @returns {string}
+   */
+  static formatMonthInLetters(monthRef, lang = 'ar', count = 1) {
+    if (!monthRef) return '-';
+
+    const monthNames = {
+      ar: [
+        'جانفي', 'فيفري', 'مارس', 'أفريل', 'ماي', 'جوان',
+        'جويلية', 'أوت', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
+      ],
+      fr: [
+        'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+        'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
+      ],
+      en: [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ]
+    };
+
+    const targetLang = ['ar', 'en', 'fr'].includes(lang) ? lang : 'ar';
+    const names = monthNames[targetLang];
+
+    const formatSingle = (ref) => {
+      const parts = String(ref).trim().split('-');
+      if (parts.length >= 2) {
+        const year = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        if (!isNaN(m) && m >= 1 && m <= 12 && !isNaN(year)) {
+          return `${names[m - 1]} ${year}`;
+        }
+      }
+      return ref;
+    };
+
+    const str = String(monthRef).trim();
+
+    // Check if it's already a range string like "2026-09 → 2026-11"
+    if (str.includes('→') || str.includes('->') || str.includes('←')) {
+      const separator = str.includes('→') ? '→' : str.includes('<-') ? '←' : '->';
+      const [start, end] = str.split(separator).map(s => s.trim());
+      const formattedStart = formatSingle(start);
+      const formattedEnd = formatSingle(end);
+      const arrow = targetLang === 'ar' ? '←' : '→';
+      return `${formattedStart} ${arrow} ${formattedEnd}`;
+    }
+
+    // If count > 1 and monthRef is single start month
+    const safeCount = parseInt(count, 10) || 1;
+    if (safeCount > 1) {
+      const list = this.getConsecutiveMonths(str, safeCount);
+      if (list.length > 1) {
+        const startFormatted = formatSingle(list[0]);
+        const endFormatted = formatSingle(list[list.length - 1]);
+        const arrow = targetLang === 'ar' ? '←' : '→';
+        return `${startFormatted} ${arrow} ${endFormatted}`;
+      }
+    }
+
+    return formatSingle(str);
+  }
+
   // --- Instance methods (utilizing configured options) ---
 
   formatDate(date) {
@@ -256,5 +326,6 @@ export const formatDateTime = (date, options) => DateTimeFormatter.formatDateTim
 export const toInputDate = (date) => DateTimeFormatter.toInputDate(date);
 export const toInputTime = (date) => DateTimeFormatter.toInputTime(date);
 export const getConsecutiveMonths = (startMonthRef, count) => DateTimeFormatter.getConsecutiveMonths(startMonthRef, count);
+export const formatMonthInLetters = (monthRef, lang, count) => DateTimeFormatter.formatMonthInLetters(monthRef, lang, count);
 
 export default DateTimeFormatter;

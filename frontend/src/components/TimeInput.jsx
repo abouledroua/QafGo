@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Clock } from 'lucide-react';
-import { DateTimeFormatter } from '../utils/DateTimeFormatter';
+import { DateTimeFormatter } from '../utils/dateTimeFormatter';
 
 /**
  * Standardized TimeInput component for QafGo Platform.
